@@ -183,36 +183,133 @@ def get_word_timestamps(audio_file):
             })
     return words
 
-# 5. Get Video Content (3-Tier Fallback System)
+# 5. Tier 1 Video Fetcher (Dedicated Module)
+def fetch_tier1_trailer(movie_title):
+    """
+    Fetches the official trailer from YouTube, crops a dynamic 15s snippet,
+    mutes audio, and cleans up the original file.
+    """
+    logger.info(f"[Tier 1] Initiating Smart Trailer Fetch for: {movie_title}")
+    
+    # 1. Automated Search & Download (max 1080p, no API key)
+    search_query = f"{movie_title} official trailer"
+    ydl_opts = {
+        'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best',
+        'outtmpl': f'{TEMP_DIR}/%(id)s.%(ext)s',
+        'noplaylist': True,
+        'quiet': True,
+        'default_search': 'ytsearch1:',
+        'nocheckcertificate': True,
+        # 'extractor_args': {'youtube': {'player_client': ['android']}}, # Optional: Use if standard client is blocked
+    }
+    
+    downloaded_path = None
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            logger.info(f"[Tier 1] Searching and downloading: {search_query}")
+            info = ydl.extract_info(search_query, download=True)
+            
+            if 'entries' in info:
+                info = info['entries'][0]
+            
+            video_id = info['id']
+            downloaded_path = ydl.prepare_filename(info)
+            
+            # Fallback check if filename differs
+            if not os.path.exists(downloaded_path):
+                files = glob.glob(f"{TEMP_DIR}/{video_id}.*")
+                if files:
+                    downloaded_path = files[0]
+                else:
+                    logger.warning("[Tier 1] Downloaded file not found.")
+                    return None
+            
+            logger.info(f"[Tier 1] Download successful: {downloaded_path}")
+
+            # 2. Smart Cropping & Audio Processing
+            logger.info("[Tier 1] Processing video (Smart Crop & Mute)...")
+            
+            try:
+                clip = VideoFileClip(downloaded_path)
+                duration = clip.duration
+                
+                # Logic: Skip first 30s (logos), take 15s from middle
+                target_duration = 15
+                skip_start = 30
+                
+                if duration < (skip_start + target_duration):
+                    logger.warning(f"[Tier 1] Video too short ({duration}s) for smart cropping criteria.")
+                    clip.close()
+                    # Determine if we should use the whole video or fail?
+                    # User said "return False/None flag", so we fail and let Tier 2 handle it.
+                    return None
+                
+                # Calculate middle point of the "useful" part
+                # Useful part starts at 30s
+                # Let's just center the 15s clip in the remaining duration
+                # usable_duration = duration - skip_start
+                # start_offset = usable_duration / 2
+                # start_time = skip_start + start_offset - (target_duration / 2)
+                
+                # Simplified: Center of the whole video, but clamped to be after skip_start
+                start_time = max(skip_start, (duration / 2) - (target_duration / 2))
+                end_time = start_time + target_duration
+                
+                # Double check end bounds
+                if end_time > duration:
+                    start_time = duration - target_duration
+                    end_time = duration
+                
+                logger.info(f"[Tier 1] Cropping interval: {start_time:.1f}s to {end_time:.1f}s")
+                
+                # Crop and Mute
+                final_clip = clip.subclipped(start_time, end_time).without_audio()
+                
+                # 3. Save Final Clip
+                processed_filename = f"{TEMP_DIR}/{video_id}_smart_crop.mp4"
+                final_clip.write_videofile(processed_filename, codec='libx264', audio=False, logger=None)
+                
+                # Cleanup resources
+                final_clip.close()
+                clip.close()
+                
+                logger.info(f"[Tier 1] Processed video saved: {processed_filename}")
+                
+                # 4. Cleanup Original File
+                if os.path.exists(downloaded_path):
+                    os.remove(downloaded_path)
+                    logger.info("[Tier 1] Original raw file deleted.")
+                    
+                return processed_filename
+
+            except Exception as e:
+                logger.error(f"[Tier 1] Processing Error: {e}")
+                if 'clip' in locals(): clip.close()
+                return None
+                
+    except Exception as e:
+        logger.warning(f"[Tier 1] Failed to fetch/process trailer: {e}")
+        # Ensure cleanup if download happened but processing failed
+        if downloaded_path and os.path.exists(downloaded_path):
+            try:
+                os.remove(downloaded_path)
+            except:
+                pass
+        return None
+
+# 6. Get Video Content (3-Tier Fallback System)
 def get_video_content(movie, audio_duration):
     movie_title = movie['title']
     movie_id = movie['id']
     logger.info(f"Getting video content for {movie_title}...")
     
-    # Tier 1: yt-dlp with Mobile Impersonation
-    try:
-        logger.info("[Tier 1] Attempting yt-dlp with Mobile Impersonation...")
-        search_query = f"{movie_title} official trailer"
-        ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'outtmpl': f'{TEMP_DIR}/%(id)s.%(ext)s',
-            'noplaylist': True,
-            'quiet': True,
-            'extractor_args': {'youtube': {'player_client': ['android']}}, # Mobile User Agent
-            'nocheckcertificate': True,
-            'default_search': 'ytsearch1:', 
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(search_query, download=True)
-            video_id = info['entries'][0]['id']
-            files = glob.glob(f"{TEMP_DIR}/{video_id}.*")
-            if files:
-                logger.info("[Tier 1] Success: Trailer downloaded.")
-                return files[0]
-            
-    except Exception as e:
-        logger.warning(f"[Tier 1] Failed: {e}")
+    # Tier 1: yt-dlp with Smart Cropping
+    video_path = fetch_tier1_trailer(movie_title)
+    if video_path:
+        return video_path
+    else:
+        logger.warning("[Tier 1] Failed or returned None. Moving to Tier 2...")
 
     # Tier 2: Pexels Stock Footage (Cinematic Fallback)
     try:

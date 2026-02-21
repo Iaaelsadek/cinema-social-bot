@@ -15,7 +15,7 @@ A fully automated content creation bot that generates and posts viral Reels abou
 
 ### 3. **The Visuals (3-Tier Fallback System)**
 A robust system ensuring a video is always generated:
-1.  **Tier 1 (YouTube Trailer):** Attempts to download the official trailer using `yt-dlp` (simulating a mobile user agent).
+1.  **Tier 1 (YouTube Trailer):** Automatically finds the official HD trailer using `yt-dlp` (bypassing API keys), then **smart-crops** a dynamic 15-second snippet from the middle (avoiding intros) and mutes the audio.
 2.  **Tier 2 (Pexels Cinematic Footage):** If YouTube fails, searches Pexels for high-quality, portrait-oriented cinematic videos (e.g., "mystery", "dark", "dramatic") to match the movie's vibe.
 3.  **Tier 3 (Dynamic Slideshow):** If all else fails, downloads high-res backdrops from TMDB and applies a **Ken Burns Effect** (alternating Zoom In/Out) to create a dynamic video flow.
 

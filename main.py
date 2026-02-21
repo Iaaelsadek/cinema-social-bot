@@ -367,19 +367,27 @@ def process_arabic_text(text):
 # Helper to download font
 def download_font():
     font_path = f"{TEMP_DIR}/Cairo-Bold.ttf"
-    if not os.path.exists(font_path):
-        logger.info("Downloading Cairo-Bold font...")
-        url = "https://github.com/Gueez/Cairo-Font/raw/master/fonts/ttf/Cairo-Bold.ttf"
+    
+    # Force remove old font to ensure update
+    if os.path.exists(font_path):
         try:
-            response = requests.get(url, stream=True)
-            response.raise_for_status()
-            with open(font_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            logger.info("Font downloaded successfully.")
-        except Exception as e:
-            logger.error(f"Failed to download font: {e}")
-            return None # Return None to signal fallback
+            os.remove(font_path)
+            logger.info("Removed existing font file to force update.")
+        except OSError:
+            pass
+
+    logger.info("Downloading Cairo-Bold font...")
+    url = "https://raw.githubusercontent.com/Gueez/Cairo-Font/master/fonts/ttf/Cairo-Bold.ttf"
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        with open(font_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        logger.info("Font downloaded successfully.")
+    except Exception as e:
+        logger.error(f"Failed to download font: {e}")
+        return None # Return None to signal fallback
     return font_path
 
 # 6. Create Video with MoviePy

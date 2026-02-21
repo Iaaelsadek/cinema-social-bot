@@ -10,3 +10,4 @@ pillow
 imageio-ffmpeg
 arabic-reshaper
 python-bidi
+python-dotenv

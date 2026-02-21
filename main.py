@@ -5,6 +5,10 @@ import json
 import asyncio
 import re
 import glob
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if present
+load_dotenv()
 from datetime import datetime
 import google.generativeai as genai
 from google.api_core import exceptions

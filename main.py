@@ -94,15 +94,24 @@ def generate_script(movie_title, movie_overview):
     ]
     
     prompt = f"""
-    Act as a viral content creator. Write a short, engaging Reels script (under 60 seconds spoken) in Egyptian Arabic slang (Ammiya) for the movie "{movie_title}".
-    Movie Overview: {movie_overview}
+    Act as a famous Egyptian content creator (YouTuber/TikToker) who is "Saye3" (street-smart) and funny.
+    Write a viral Reels script (under 50 seconds spoken) in **Cairo Slang (Ammiya)** for the movie "{movie_title}".
     
-    Structure:
-    1. Hook: A catchy opening sentence to grab attention immediately.
-    2. Body: Briefly explain the plot in an exciting way without major spoilers.
-    3. Call to Action: End with "تابعوا المزيد على cinma.online" (Make sure this exact phrase is included).
+    **Persona & Tone:**
+    - You are talking to your friends at a cafe.
+    - Use popular Egyptian street slang: "يا جدعان"، "جامد جدي"، "ركز معايا"، "الليلة فيها إن"، "يخرب بيت جماله".
+    - **NO Modern Standard Arabic (Fusha).** Strictly Ammiya.
+    - Be high energy, dramatic, and suspenseful.
     
-    Return ONLY the raw script text to be spoken, no headers, no scene directions. Do not include asterisks or markdown formatting.
+    **Structure:**
+    1. **The Hook:** A shocking question or statement.
+    2. **The Story:** Tell the movie plot like a juicy gossip story.
+    3. **CTA:** End exactly with: "وعشان تشوف الفيلم، ادخل على موقع أونلاين سينما (online cinema) وما تنساش اللايك!"
+    
+    **Formatting Rules:**
+    - Write phonetic Arabic for any English names (e.g. "باتمان" not "Batman").
+    - Keep sentences short and punchy for the TTS engine.
+    - Return ONLY the raw Arabic text.
     """
     
     for model_name in models_to_try:
@@ -131,11 +140,29 @@ def generate_script(movie_title, movie_overview):
     # If loop finishes without returning
     raise RuntimeError("All Gemini models failed to generate the script. Please check quotas or API key.")
 
-# 3. Generate Audio with Edge-TTS
+# 3. Clean Text for TTS
+def clean_text_for_tts(text):
+    # Remove markdown and special chars
+    text = text.replace('*', '').replace('#', '').replace('-', '')
+    text = text.replace('"', '').replace("'", "")
+    
+    # Remove emojis
+    text = re.sub(r'[^\w\s\u0600-\u06FF]', '', text)
+    
+    # Normalize spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+# 4. Generate Audio with Edge-TTS
 async def generate_audio(text, output_file):
     logger.info("Generating audio with Edge-TTS...")
+    
+    # Clean text before sending to TTS
+    clean_text = clean_text_for_tts(text)
+    logger.info(f"Cleaned Text for TTS: {clean_text[:50]}...")
+    
     voice = "ar-EG-SalmaNeural" # Egyptian Female Voice (Natural & Storytelling style)
-    communicate = edge_tts.Communicate(text, voice)
+    communicate = edge_tts.Communicate(clean_text, voice)
     await communicate.save(output_file)
     logger.info(f"Audio saved to {output_file}")
 
@@ -284,7 +311,7 @@ def get_video_content(movie, audio_duration):
         clips = []
         duration_per_slide = audio_duration / len(image_paths)
         
-        for img_path in image_paths:
+        for idx, img_path in enumerate(image_paths):
             # Create ImageClip
             img_clip = ImageClip(img_path).with_duration(duration_per_slide)
             
@@ -303,9 +330,15 @@ def get_video_content(movie, audio_duration):
                 y_center = h_new / 2
                 img_clip = img_clip.cropped(x1=0, x2=1080, y1=y_center - (1920/2), y2=y_center + (1920/2))
                 
-            # 2. Apply Ken Burns Effect (Zoom In)
-            # Zoom from 1.0 to 1.15 over the duration
-            img_clip = img_clip.with_effects([vfx.Resize(lambda t: 1 + 0.04 * t)])
+            # 2. Apply Ken Burns Effect (Alternating Zoom In / Zoom Out)
+            if idx % 2 == 0:
+                # Zoom In: 1.0 -> 1.15
+                effect = vfx.Resize(lambda t: 1 + 0.04 * t)
+            else:
+                # Zoom Out: 1.15 -> 1.0 (Approx)
+                effect = vfx.Resize(lambda t: 1.15 - 0.04 * t)
+            
+            img_clip = img_clip.with_effects([effect])
             
             # 3. Force Center in 1080x1920 Container (to handle the growth from zoom)
             # This ensures the video size stays constant 1080x1920

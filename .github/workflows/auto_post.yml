@@ -1,0 +1,52 @@
+name: Auto Viral Reel Poster
+
+on:
+  schedule:
+    # Runs at 14:00 UTC every day (Adjust as needed)
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+
+jobs:
+  build-and-post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Needed if we were committing code, but we are just posting
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg imagemagick fonts-dejavu
+          # Fix ImageMagick policy to allow text operations if restricted (common issue)
+          # Often not strictly needed for basic text, but good to have if we encounter policy errors
+          # sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Viral Reel Generator
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+        run: |
+          python main.py
+
+      - name: Upload Artifact (Optional - for debugging)
+        if: failure() || success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-reel
+          path: output/final_reel.mp4
+          retention-days: 5

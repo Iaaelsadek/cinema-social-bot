@@ -1,0 +1,12 @@
+google-generativeai
+requests
+edge-tts
+yt-dlp
+moviepy==1.0.3
+openai-whisper
+torch
+numpy
+pillow
+imageio-ffmpeg
+arabic-reshaper
+python-bidi

@@ -15,7 +15,7 @@ from google.api_core import exceptions
 import edge_tts
 import yt_dlp
 # MoviePy 2.0 Imports
-from moviepy import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, concatenate_videoclips
+from moviepy import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, concatenate_videoclips, ImageClip
 import moviepy.video.fx as vfx
 import moviepy.audio.fx as afx
 from moviepy.audio.AudioClip import CompositeAudioClip
@@ -155,26 +155,171 @@ def get_word_timestamps(audio_file):
             })
     return words
 
-# 5. Download Trailer with yt-dlp
-def download_trailer(movie_title):
-    logger.info(f"Downloading trailer for {movie_title}...")
-    search_query = f"{movie_title} official trailer"
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': f'{TEMP_DIR}/%(id)s.%(ext)s',
-        'noplaylist': True,
-        'quiet': True, # Set to False for debugging
-        'default_search': 'ytsearch1:', 
-    }
+# 5. Get Video Content (3-Tier Fallback System)
+def get_video_content(movie, audio_duration):
+    movie_title = movie['title']
+    movie_id = movie['id']
+    logger.info(f"Getting video content for {movie_title}...")
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(search_query, download=True)
-        video_id = info['entries'][0]['id']
-        # Find the file (extension might vary)
-        files = glob.glob(f"{TEMP_DIR}/{video_id}.*")
-        if not files:
-            raise FileNotFoundError("Downloaded video file not found.")
-        return files[0]
+    # Tier 1: yt-dlp with Mobile Impersonation
+    try:
+        logger.info("[Tier 1] Attempting yt-dlp with Mobile Impersonation...")
+        search_query = f"{movie_title} official trailer"
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': f'{TEMP_DIR}/%(id)s.%(ext)s',
+            'noplaylist': True,
+            'quiet': True,
+            'extractor_args': {'youtube': {'player_client': ['android']}}, # Mobile User Agent
+            'nocheckcertificate': True,
+            'default_search': 'ytsearch1:', 
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(search_query, download=True)
+            video_id = info['entries'][0]['id']
+            files = glob.glob(f"{TEMP_DIR}/{video_id}.*")
+            if files:
+                logger.info("[Tier 1] Success: Trailer downloaded.")
+                return files[0]
+            
+    except Exception as e:
+        logger.warning(f"[Tier 1] Failed: {e}")
+
+    # Tier 2: Third-Party API Fallback (Cobalt / Direct MP4)
+    try:
+        logger.info("[Tier 2] Attempting Third-Party API Fallback (Cobalt)...")
+        # First, we need a video URL. Try to get it from yt-dlp without downloading
+        ydl_opts_url = {
+            'quiet': True, 
+            'default_search': 'ytsearch1:', 
+            'extract_flat': True # Don't download, just get info
+        }
+        video_url = None
+        with yt_dlp.YoutubeDL(ydl_opts_url) as ydl:
+            info = ydl.extract_info(f"{movie_title} official trailer", download=False)
+            if 'entries' in info and info['entries']:
+                 video_url = info['entries'][0]['url']
+        
+        if video_url:
+            logger.info(f"Found Video URL: {video_url}")
+            # Use Cobalt API
+            cobalt_payload = {
+                "url": video_url,
+                "vCodec": "h264",
+                "vQuality": "720",
+                "aFormat": "mp3",
+                "filenamePattern": "basic"
+            }
+            headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
+            # Note: Cobalt instances vary. Using api.cobalt.tools as requested.
+            response = requests.post("https://api.cobalt.tools/api/json", json=cobalt_payload, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'url' in data:
+                    direct_url = data['url']
+                    logger.info("Got direct download URL from Cobalt.")
+                    # Download the file
+                    video_filename = f"{TEMP_DIR}/cobalt_video.mp4"
+                    with requests.get(direct_url, stream=True) as r:
+                        r.raise_for_status()
+                        with open(video_filename, 'wb') as f:
+                            for chunk in r.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                    logger.info("[Tier 2] Success: Video downloaded via Cobalt.")
+                    return video_filename
+                else:
+                    logger.warning(f"Cobalt response did not contain URL: {data}")
+            else:
+                 logger.warning(f"Cobalt API failed with status {response.status_code}")
+        else:
+            logger.warning("Could not find video URL for Tier 2.")
+            
+    except Exception as e:
+        logger.warning(f"[Tier 2] Failed: {e}")
+
+    # Tier 3: The Ultimate Slideshow Fallback (TMDB Backdrops)
+    try:
+        logger.info("[Tier 3] Initiating Ultimate Slideshow Fallback...")
+        
+        # Fetch Backdrops from TMDB
+        images_url = f"https://api.themoviedb.org/3/movie/{movie_id}/images?api_key={TMDB_API_KEY}"
+        response = requests.get(images_url)
+        response.raise_for_status()
+        data = response.json()
+        backdrops = data.get('backdrops', [])
+        
+        if not backdrops:
+            # Fallback to posters if no backdrops
+            backdrops = data.get('posters', [])
+            
+        if not backdrops:
+             raise Exception("No images found in TMDB.")
+             
+        # Select top 5-7 images
+        selected_images = backdrops[:7]
+        image_paths = []
+        
+        for idx, img_data in enumerate(selected_images):
+            img_url = f"https://image.tmdb.org/t/p/original{img_data['file_path']}"
+            img_path = f"{TEMP_DIR}/slide_{idx}.jpg"
+            
+            # Download Image
+            with requests.get(img_url, stream=True) as r:
+                r.raise_for_status()
+                with open(img_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            image_paths.append(img_path)
+            
+        if not image_paths:
+            raise Exception("Failed to download any images.")
+            
+        # Create Slideshow
+        logger.info(f"Creating slideshow from {len(image_paths)} images...")
+        clips = []
+        duration_per_slide = audio_duration / len(image_paths)
+        
+        for img_path in image_paths:
+            # Create ImageClip
+            # Resize and Crop to 9:16
+            clip = ImageClip(img_path).with_duration(duration_per_slide)
+            
+            # Smart Crop (Center) to 9:16
+            w, h = clip.size
+            target_ratio = 9/16
+            
+            # Resize to cover 1080x1920
+            # If image is wider than target
+            if w/h > target_ratio:
+                # Resize by height
+                clip = clip.resized(height=1920)
+                # Crop width
+                w_new = clip.size[0]
+                x_center = w_new / 2
+                clip = clip.cropped(x1=x_center - (1080/2), x2=x_center + (1080/2), y1=0, y2=1920)
+            else:
+                # Resize by width
+                clip = clip.resized(width=1080)
+                # Crop height
+                h_new = clip.size[1]
+                y_center = h_new / 2
+                clip = clip.cropped(x1=0, x2=1080, y1=y_center - (1920/2), y2=y_center + (1920/2))
+                
+            clips.append(clip)
+            
+        # Concatenate
+        slideshow_video = concatenate_videoclips(clips, method="compose")
+        slideshow_path = f"{TEMP_DIR}/slideshow_fallback.mp4"
+        slideshow_video.write_videofile(slideshow_path, fps=24, codec='libx264')
+        
+        logger.info("[Tier 3] Success: Slideshow generated.")
+        return slideshow_path
+
+    except Exception as e:
+        logger.error(f"[Tier 3] Failed: {e}")
+        raise RuntimeError("All 3 Tiers of video retrieval failed. System cannot proceed.")
 
 # Helper for Arabic Text
 def process_arabic_text(text):
@@ -224,9 +369,12 @@ def create_reel(video_path, audio_path, words, output_path):
     
     # Mix audio: Voiceover + Background (Original Audio lowered)
     # MoviePy 2.0: with_volume_scaled()
-    video_audio = video_clip.audio.with_volume_scaled(0.1) # Lower background volume to 10%
-    
-    final_audio = CompositeAudioClip([video_audio, audio_clip])
+    if video_clip.audio:
+         video_audio = video_clip.audio.with_volume_scaled(0.1) # Lower background volume to 10%
+         final_audio = CompositeAudioClip([video_audio, audio_clip])
+    else:
+         final_audio = audio_clip # Use voiceover only if video has no audio (e.g. slideshow)
+         
     video_clip = video_clip.with_audio(final_audio)
 
     # Add Subtitles
@@ -320,11 +468,16 @@ async def main():
         audio_path = f"{TEMP_DIR}/voiceover.mp3"
         await generate_audio(script, audio_path)
         
+        # Get audio duration
+        audio_clip = AudioFileClip(audio_path)
+        audio_duration = audio_clip.duration
+        audio_clip.close() # Close to avoid lock issues
+        
         # 4. Get Timestamps
         words = get_word_timestamps(audio_path)
         
-        # 5. Download Trailer
-        video_raw_path = download_trailer(title)
+        # 5. Get Video Content (Trailer or Fallback)
+        video_raw_path = get_video_content(movie, audio_duration)
         
         # 6. Create Video
         output_video_path = f"{OUTPUT_DIR}/final_reel.mp4"

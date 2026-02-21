@@ -74,8 +74,8 @@ def generate_script(movie_title, movie_overview):
         raise ValueError("GEMINI_API_KEY not found.")
         
     genai.configure(api_key=GEMINI_API_KEY)
-    # Using gemini-1.5-flash as it is the latest stable and fast model
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # Using gemini-3.1-pro as requested
+    model = genai.GenerativeModel('gemini-3.1-pro')
     
     prompt = f"""
     Act as a viral content creator. Write a short, engaging Reels script (under 60 seconds spoken) in Egyptian Arabic slang (Ammiya) for the movie "{movie_title}".

@@ -327,9 +327,30 @@ def process_arabic_text(text):
     bidi_text = get_display(reshaped_text)
     return bidi_text
 
+# Helper to download font
+def download_font():
+    font_path = f"{TEMP_DIR}/Cairo-Bold.ttf"
+    if not os.path.exists(font_path):
+        logger.info("Downloading Cairo-Bold font...")
+        url = "https://github.com/Gueez/Cairo-Font/raw/master/fonts/ttf/Cairo-Bold.ttf"
+        try:
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
+            with open(font_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            logger.info("Font downloaded successfully.")
+        except Exception as e:
+            logger.error(f"Failed to download font: {e}")
+            return None # Return None to signal fallback
+    return font_path
+
 # 6. Create Video with MoviePy
 def create_reel(video_path, audio_path, words, output_path):
     logger.info("Editing video...")
+    
+    # Ensure font is available
+    font_path = download_font()
     
     # Load audio
     audio_clip = AudioFileClip(audio_path)
@@ -380,12 +401,13 @@ def create_reel(video_path, audio_path, words, output_path):
     # Add Subtitles
     text_clips = []
     
-    # Try to find a font that supports Arabic
-    # On Ubuntu, DejaVuSans is common. 
-    font_name = 'DejaVu-Sans' 
-    # If on Windows for local testing, might need 'Arial' or specific path
-    if os.name == 'nt':
-        font_name = 'Arial'
+    # Use downloaded font if available, otherwise fallback
+    font_name = font_path if font_path and os.path.exists(font_path) else 'Arial'
+    if not font_path or not os.path.exists(font_path):
+        if os.name != 'nt':
+             font_name = 'DejaVu-Sans'
+
+    logger.info(f"Using font: {font_name}")
 
     for word_info in words:
         word_text = process_arabic_text(word_info['word'])
@@ -450,6 +472,14 @@ def post_to_facebook(video_path, caption):
         logger.error(f"Failed to upload video: {e}")
         if 'response' in locals():
              logger.error(f"Response: {response.text}")
+             try:
+                 error_data = response.json()
+                 if error_data.get('error', {}).get('code') == 100:
+                     logger.error("❌ PERMISSION ERROR #100: Missing Permissions!")
+                     logger.error("Please enable 'pages_manage_posts' and 'pages_read_engagement' in Meta Developers Console.")
+                     logger.error("🔗 Link: https://developers.facebook.com/apps/")
+             except:
+                 pass
     finally:
         files['source'].close()
 

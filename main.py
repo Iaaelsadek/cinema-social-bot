@@ -47,6 +47,7 @@ HOW TO ADD API KEYS TO GITHUB SECRETS
 # Constants
 TMDB_API_KEY = os.environ.get("TMDB_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN")
 FB_PAGE_ID = os.environ.get("FB_PAGE_ID")
 OUTPUT_DIR = "output"
@@ -133,7 +134,7 @@ def generate_script(movie_title, movie_overview):
 # 3. Generate Audio with Edge-TTS
 async def generate_audio(text, output_file):
     logger.info("Generating audio with Edge-TTS...")
-    voice = "ar-EG-SalmaNeural" 
+    voice = "ar-EG-SalmaNeural" # Egyptian Female Voice (Natural & Storytelling style)
     communicate = edge_tts.Communicate(text, voice)
     await communicate.save(output_file)
     logger.info(f"Audio saved to {output_file}")
@@ -186,60 +187,62 @@ def get_video_content(movie, audio_duration):
     except Exception as e:
         logger.warning(f"[Tier 1] Failed: {e}")
 
-    # Tier 2: Third-Party API Fallback (Cobalt / Direct MP4)
+    # Tier 2: Pexels Stock Footage (Cinematic Fallback)
     try:
-        logger.info("[Tier 2] Attempting Third-Party API Fallback (Cobalt)...")
-        # First, we need a video URL. Try to get it from yt-dlp without downloading
-        ydl_opts_url = {
-            'quiet': True, 
-            'default_search': 'ytsearch1:', 
-            'extract_flat': True # Don't download, just get info
-        }
+        logger.info("[Tier 2] Attempting Pexels Stock Footage...")
+        if not PEXELS_API_KEY:
+            logger.warning("PEXELS_API_KEY not found. Skipping Tier 2.")
+            raise ValueError("Missing Pexels API Key")
+
+        # Determine search query based on title or generic keywords
+        # We can try searching for the movie title, but Pexels might not have it.
+        # Fallback to generic cinematic queries.
+        queries = [movie_title + " movie", "cinematic dark", "dramatic film scene", "mystery cinematic"]
         video_url = None
-        with yt_dlp.YoutubeDL(ydl_opts_url) as ydl:
-            info = ydl.extract_info(f"{movie_title} official trailer", download=False)
-            if 'entries' in info and info['entries']:
-                 video_url = info['entries'][0]['url']
         
-        if video_url:
-            logger.info(f"Found Video URL: {video_url}")
-            # Use Cobalt API
-            cobalt_payload = {
-                "url": video_url,
-                "vCodec": "h264",
-                "vQuality": "720",
-                "aFormat": "mp3",
-                "filenamePattern": "basic"
-            }
-            headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
-            # Note: Cobalt instances vary. Using api.cobalt.tools as requested.
-            response = requests.post("https://api.cobalt.tools/api/json", json=cobalt_payload, headers=headers)
+        headers = {'Authorization': PEXELS_API_KEY}
+        
+        for query in queries:
+            logger.info(f"Searching Pexels for: {query}")
+            search_url = f"https://api.pexels.com/videos/search?query={query}&per_page=3&orientation=portrait&size=medium"
+            response = requests.get(search_url, headers=headers)
             
             if response.status_code == 200:
                 data = response.json()
-                if 'url' in data:
-                    direct_url = data['url']
-                    logger.info("Got direct download URL from Cobalt.")
-                    # Download the file
-                    video_filename = f"{TEMP_DIR}/cobalt_video.mp4"
-                    with requests.get(direct_url, stream=True) as r:
-                        r.raise_for_status()
-                        with open(video_filename, 'wb') as f:
-                            for chunk in r.iter_content(chunk_size=8192):
-                                f.write(chunk)
-                    logger.info("[Tier 2] Success: Video downloaded via Cobalt.")
-                    return video_filename
-                else:
-                    logger.warning(f"Cobalt response did not contain URL: {data}")
-            else:
-                 logger.warning(f"Cobalt API failed with status {response.status_code}")
+                videos = data.get('videos', [])
+                if videos:
+                    # Pick a random video from results
+                    video_data = random.choice(videos)
+                    video_files = video_data.get('video_files', [])
+                    # Sort by quality (width) to get decent quality but not huge
+                    video_files.sort(key=lambda x: x['width'], reverse=True)
+                    
+                    # Find a suitable MP4
+                    for vf in video_files:
+                        if vf['file_type'] == 'video/mp4':
+                            video_url = vf['link']
+                            break
+                    
+                    if video_url:
+                        logger.info(f"Found video on Pexels: {video_url}")
+                        break
+            
+        if video_url:
+            video_filename = f"{TEMP_DIR}/pexels_video.mp4"
+            with requests.get(video_url, stream=True) as r:
+                r.raise_for_status()
+                with open(video_filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            logger.info("[Tier 2] Success: Video downloaded via Pexels.")
+            return video_filename
         else:
-            logger.warning("Could not find video URL for Tier 2.")
+             logger.warning("No suitable videos found on Pexels.")
             
     except Exception as e:
         logger.warning(f"[Tier 2] Failed: {e}")
 
-    # Tier 3: The Ultimate Slideshow Fallback (TMDB Backdrops)
+    # Tier 3: The Ultimate Slideshow Fallback (TMDB Backdrops + Ken Burns Effect)
     try:
         logger.info("[Tier 3] Initiating Ultimate Slideshow Fallback...")
         
@@ -276,38 +279,39 @@ def get_video_content(movie, audio_duration):
         if not image_paths:
             raise Exception("Failed to download any images.")
             
-        # Create Slideshow
-        logger.info(f"Creating slideshow from {len(image_paths)} images...")
+        # Create Slideshow with Ken Burns Effect
+        logger.info(f"Creating slideshow with Ken Burns effect from {len(image_paths)} images...")
         clips = []
         duration_per_slide = audio_duration / len(image_paths)
         
         for img_path in image_paths:
             # Create ImageClip
-            # Resize and Crop to 9:16
-            clip = ImageClip(img_path).with_duration(duration_per_slide)
+            img_clip = ImageClip(img_path).with_duration(duration_per_slide)
             
-            # Smart Crop (Center) to 9:16
-            w, h = clip.size
+            # 1. Resize to cover 1080x1920 (Base static crop)
+            w, h = img_clip.size
             target_ratio = 9/16
             
-            # Resize to cover 1080x1920
-            # If image is wider than target
             if w/h > target_ratio:
-                # Resize by height
-                clip = clip.resized(height=1920)
-                # Crop width
-                w_new = clip.size[0]
+                img_clip = img_clip.resized(height=1920)
+                w_new = img_clip.size[0]
                 x_center = w_new / 2
-                clip = clip.cropped(x1=x_center - (1080/2), x2=x_center + (1080/2), y1=0, y2=1920)
+                img_clip = img_clip.cropped(x1=x_center - (1080/2), x2=x_center + (1080/2), y1=0, y2=1920)
             else:
-                # Resize by width
-                clip = clip.resized(width=1080)
-                # Crop height
-                h_new = clip.size[1]
+                img_clip = img_clip.resized(width=1080)
+                h_new = img_clip.size[1]
                 y_center = h_new / 2
-                clip = clip.cropped(x1=0, x2=1080, y1=y_center - (1920/2), y2=y_center + (1920/2))
+                img_clip = img_clip.cropped(x1=0, x2=1080, y1=y_center - (1920/2), y2=y_center + (1920/2))
                 
-            clips.append(clip)
+            # 2. Apply Ken Burns Effect (Zoom In)
+            # Zoom from 1.0 to 1.15 over the duration
+            img_clip = img_clip.with_effects([vfx.Resize(lambda t: 1 + 0.04 * t)])
+            
+            # 3. Force Center in 1080x1920 Container (to handle the growth from zoom)
+            # This ensures the video size stays constant 1080x1920
+            img_clip = CompositeVideoClip([img_clip.with_position("center")], size=(1080, 1920))
+            
+            clips.append(img_clip)
             
         # Concatenate
         slideshow_video = concatenate_videoclips(clips, method="compose")

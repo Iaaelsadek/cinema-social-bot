@@ -7,6 +7,7 @@ import re
 import glob
 from datetime import datetime
 import google.generativeai as genai
+from google.api_core import exceptions
 import edge_tts
 import yt_dlp
 # MoviePy 2.0 Imports
@@ -71,15 +72,21 @@ def get_trending_movie():
     logger.info(f"Selected movie: {movie['title']}")
     return movie
 
-# 2. Generate Script with Gemini
+# 2. Generate Script with Gemini (with Fallback Mechanism)
 def generate_script(movie_title, movie_overview):
     logger.info(f"Generating script for {movie_title} using Gemini...")
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY not found.")
         
     genai.configure(api_key=GEMINI_API_KEY)
-    # Using gemini-2.5-flash as requested (latest free/fast model)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    
+    # List of models to try in order: Best/Newest -> Stable -> Fallback
+    models_to_try = [
+        'gemini-2.5-flash',   # Latest fast model
+        'gemini-2.0-flash',   # Previous stable fast model
+        'gemini-1.5-flash',   # Reliable workhorse
+        'gemini-1.5-pro'      # High capacity fallback
+    ]
     
     prompt = f"""
     Act as a viral content creator. Write a short, engaging Reels script (under 60 seconds spoken) in Egyptian Arabic slang (Ammiya) for the movie "{movie_title}".
@@ -93,10 +100,31 @@ def generate_script(movie_title, movie_overview):
     Return ONLY the raw script text to be spoken, no headers, no scene directions. Do not include asterisks or markdown formatting.
     """
     
-    response = model.generate_content(prompt)
-    script = response.text.strip().replace('*', '')
-    logger.info("Script generated successfully.")
-    return script
+    for model_name in models_to_try:
+        try:
+            logger.info(f"Attempting to generate script with model: {model_name}")
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            script = response.text.strip().replace('*', '')
+            logger.info(f"Script generated successfully using {model_name}.")
+            return script
+            
+        except exceptions.ResourceExhausted as e:
+            logger.warning(f"Resource Exhausted (Quota exceeded) for {model_name}. Switching to fallback...")
+            continue # Try next model
+        except exceptions.TooManyRequests as e:
+            logger.warning(f"Too Many Requests (429) for {model_name}. Switching to fallback...")
+            continue # Try next model
+        except Exception as e:
+            logger.error(f"Unexpected error with {model_name}: {e}")
+            # If it's a critical error not related to quota, we might want to continue or break.
+            # For robustness, we continue to try other models unless it's an auth error (which would likely fail all).
+            if "API_KEY" in str(e): # Stop if key is invalid
+                 raise
+            continue
+
+    # If loop finishes without returning
+    raise RuntimeError("All Gemini models failed to generate the script. Please check quotas or API key.")
 
 # 3. Generate Audio with Edge-TTS
 async def generate_audio(text, output_file):

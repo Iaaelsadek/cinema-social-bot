@@ -9,8 +9,12 @@ from datetime import datetime
 import google.generativeai as genai
 import edge_tts
 import yt_dlp
-from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, concatenate_videoclips, vfx
-from moviepy.config import change_settings
+# MoviePy 2.0 Imports
+from moviepy import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, concatenate_videoclips
+import moviepy.video.fx as vfx
+import moviepy.audio.fx as afx
+from moviepy.audio.AudioClip import CompositeAudioClip
+
 import whisper
 import numpy as np
 import arabic_reshaper
@@ -74,8 +78,8 @@ def generate_script(movie_title, movie_overview):
         raise ValueError("GEMINI_API_KEY not found.")
         
     genai.configure(api_key=GEMINI_API_KEY)
-    # Using gemini-2.0-flash as it is the latest free and fast model
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    # Using gemini-2.5-flash as requested (latest free/fast model)
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     prompt = f"""
     Act as a viral content creator. Write a short, engaging Reels script (under 60 seconds spoken) in Egyptian Arabic slang (Ammiya) for the movie "{movie_title}".
@@ -160,9 +164,10 @@ def create_reel(video_path, audio_path, words, output_path):
     # Loop video if shorter than audio, or cut if longer
     if video_clip.duration < duration:
         # Loop video to match audio duration
-        video_clip = vfx.loop(video_clip, duration=duration)
+        # MoviePy 2.0: Use with_effects for loop
+        video_clip = video_clip.with_effects([vfx.Loop(duration=duration)])
     else:
-        video_clip = video_clip.subclip(0, duration)
+        video_clip = video_clip.subclipped(0, duration)
         
     # Crop to 9:16 (Vertical)
     w, h = video_clip.size
@@ -173,20 +178,24 @@ def create_reel(video_path, audio_path, words, output_path):
         # Too wide, crop width
         new_w = int(h * target_ratio)
         x_center = w / 2
-        video_clip = video_clip.crop(x1=x_center - new_w/2, x2=x_center + new_w/2, y1=0, y2=h)
+        # MoviePy 2.0: cropped() instead of crop()
+        video_clip = video_clip.cropped(x1=x_center - new_w/2, x2=x_center + new_w/2, y1=0, y2=h)
     else:
         # Too tall (unlikely), crop height
         new_h = int(w / target_ratio)
         y_center = h / 2
-        video_clip = video_clip.crop(x1=0, x2=w, y1=y_center - new_h/2, y2=y_center + new_h/2)
+        video_clip = video_clip.cropped(x1=0, x2=w, y1=y_center - new_h/2, y2=y_center + new_h/2)
         
-    video_clip = video_clip.resize(height=1920) # Resize to 1080x1920
+    # Resize to 1080x1920
+    # MoviePy 2.0: resized() instead of resize()
+    video_clip = video_clip.resized(height=1920) 
     
     # Mix audio: Voiceover + Background (Original Audio lowered)
-    video_audio = video_clip.audio.volumex(0.1) # Lower background volume to 10%
-    from moviepy.audio.AudioClip import CompositeAudioClip
+    # MoviePy 2.0: with_volume_scaled()
+    video_audio = video_clip.audio.with_volume_scaled(0.1) # Lower background volume to 10%
+    
     final_audio = CompositeAudioClip([video_audio, audio_clip])
-    video_clip = video_clip.set_audio(final_audio)
+    video_clip = video_clip.with_audio(final_audio)
 
     # Add Subtitles
     text_clips = []
@@ -207,14 +216,15 @@ def create_reel(video_path, audio_path, words, output_path):
         if duration_txt <= 0: continue
 
         # Create TextClip
-        # Using method='caption' handles wrapping, but for single words 'label' is often better or just default
-        # Stroke color adds readability
+        # MoviePy 2.0: TextClip params changed. 
+        # font, text, font_size, color, stroke_color, stroke_width, method, size
+        # set_position -> with_position, set_start -> with_start, set_duration -> with_duration
         try:
-            txt_clip = (TextClip(word_text, fontsize=90, color='yellow', font=font_name, 
+            txt_clip = (TextClip(text=word_text, font_size=90, color='yellow', font=font_name, 
                                 stroke_color='black', stroke_width=3, size=(1000, None), method='caption')
-                        .set_position(('center', 1400))
-                        .set_start(start)
-                        .set_duration(duration_txt))
+                        .with_position(('center', 1400))
+                        .with_start(start)
+                        .with_duration(duration_txt))
             text_clips.append(txt_clip)
         except Exception as e:
             logger.warning(f"Could not create text clip for word '{word_text}': {e}")

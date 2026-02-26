@@ -2,19 +2,28 @@ name: Auto Viral Reel Poster
 
 on:
   schedule:
-    # Runs at 14:00 UTC every day (Adjust as needed)
-    - cron: '0 14 * * *'
+    # Runs HOURLY to check the randomized schedule
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:
   build-and-post:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed if we were committing code, but we are just posting
+      contents: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install Ubuntu System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg imagemagick fonts-hosny-amiri fonts-kacst
+          # Fix ImageMagick policy to allow text operations
+          sudo sed -i 's/policy domain="resource" name="disk" value="1GiB"/policy domain="resource" name="disk" value="8GiB"/g' /etc/ImageMagick-6/policy.xml
+          sudo sed -i 's/rights="none" pattern="PDF"/rights="read,write" pattern="PDF"/g' /etc/ImageMagick-6/policy.xml
+          sudo sed -i 's/rights="none" pattern="LABEL"/rights="read,write" pattern="LABEL"/g' /etc/ImageMagick-6/policy.xml
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -24,10 +33,11 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg imagemagick fonts-dejavu
-          # Fix ImageMagick policy to allow text operations if restricted (common issue)
-          # Often not strictly needed for basic text, but good to have if we encounter policy errors
-          # sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+          sudo apt-get install -y ffmpeg imagemagick fonts-hosny-amiri fonts-kacst
+          # Fix ImageMagick policy to allow text operations
+          sudo sed -i 's/policy domain="resource" name="disk" value="1GiB"/policy domain="resource" name="disk" value="8GiB"/g' /etc/ImageMagick-6/policy.xml
+          sudo sed -i 's/rights="none" pattern="PDF"/rights="read,write" pattern="PDF"/g' /etc/ImageMagick-6/policy.xml
+          sudo sed -i 's/rights="none" pattern="LABEL"/rights="read,write" pattern="LABEL"/g' /etc/ImageMagick-6/policy.xml
 
       - name: Install Python Dependencies
         run: |
@@ -44,10 +54,11 @@ jobs:
         run: |
           python main.py
 
-      - name: Upload Artifact (Optional - for debugging)
-        if: failure() || success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-reel
-          path: output/final_reel.mp4
-          retention-days: 5
+      - name: Commit and Push state changes
+        if: always()
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add bot_state.json viral_queue.json
+          git commit -m "chore: update bot state and queue [skip ci]" || echo "No changes to commit"
+          git push

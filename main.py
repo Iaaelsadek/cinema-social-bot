@@ -1,3 +1,58 @@
+import os
+import sys
+import time
+import json
+import random
+
+# Ensure directories exist immediately
+OUTPUT_DIR = "output"
+TEMP_DIR = "temp"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+# --- Dynamic Random Scheduling ---
+STATE_FILE = "bot_state.json"
+
+def check_scheduling():
+    """Checks if it's time to post based on randomized interval."""
+    if not os.path.exists(STATE_FILE):
+        logger.info("No bot_state.json found. Proceeding with first run...")
+        return
+    
+    try:
+        with open(STATE_FILE, 'r') as f:
+            state = json.load(f)
+        
+        last_post = state.get("last_post_timestamp", 0)
+        next_interval = state.get("next_interval_seconds", 0)
+        
+        current_time = time.time()
+        elapsed = current_time - last_post
+        
+        if elapsed < next_interval:
+            remaining_mins = int((next_interval - elapsed) / 60)
+            logger.info(f"⏳ Waiting for the random schedule... Next post in {remaining_mins} minutes.")
+            sys.exit(0)
+        else:
+            logger.info(f"Schedule reached! Elapsed: {int(elapsed/3600)}h. Interval was: {int(next_interval/3600)}h.")
+    except Exception as e:
+        logger.warning(f"Error checking schedule: {e}. Proceeding anyway...")
+
+def update_scheduling():
+    """Updates bot_state.json with new random interval after successful post."""
+    try:
+        new_interval = random.randint(5 * 3600, 7 * 3600) # 5-7 hours
+        state = {
+            "last_post_timestamp": time.time(),
+            "next_interval_seconds": new_interval,
+            "last_post_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f, indent=4)
+        logger.info(f"✅ Schedule updated: Next post in {int(new_interval/3600)} hours.")
+    except Exception as e:
+        logger.error(f"Failed to update schedule: {e}")
+
 import platform
 # MONKEY PATCH: Fix broken WMI on user system (CRITICAL)
 platform.machine = lambda: "AMD64"
@@ -9,23 +64,7 @@ platform.win32_ver = lambda *args, **kwargs: ('10', '10.0.19041', 'SP0', 'Multip
 platform.platform = lambda: "Windows-10-10.0.19041-SP0"
 platform.node = lambda: "DESKTOP-USER"
 
-import os
-import sys
-
-# Set environment variables for memory management
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-
-# Force ffmpeg path to bypass WMI check (User Fix for OSError)
-if os.path.exists("ffmpeg.exe"):
-    os.environ["IMAGEIO_FFMPEG_EXE"] = os.path.abspath("ffmpeg.exe")
-
-import random
 import requests
-import json
 import asyncio
 import re
 import glob
@@ -33,13 +72,19 @@ import traceback
 import logging
 import shutil
 import subprocess
-import time
 import gc
 import cv2
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
+
+# Set environment variables for memory management
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 # RICH UI IMPORTS
 from rich.console import Console
@@ -347,18 +392,15 @@ def clean_temp_files():
     logger.info("Temp and Output directories cleaned.")
 
 # --- FFmpeg Configuration ---
-ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-ffmpeg_dir = os.path.dirname(ffmpeg_path)
-os.environ["PATH"] += os.pathsep + ffmpeg_dir
-os.environ["PATH"] += os.pathsep + os.getcwd()
-
-local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg.exe")
-if not os.path.exists(local_ffmpeg):
-    try:
-        shutil.copy(ffmpeg_path, local_ffmpeg)
-        logger.info(f"Copied FFmpeg to {local_ffmpeg}")
-    except Exception as e:
-        logger.warning(f"Could not copy FFmpeg: {e}")
+# Headless Cloud Support: Use system ffmpeg if ffmpeg.exe is not present
+if os.path.exists("ffmpeg.exe"):
+    os.environ["IMAGEIO_FFMPEG_EXE"] = os.path.abspath("ffmpeg.exe")
+    ffmpeg_path = os.path.abspath("ffmpeg.exe")
+    ffmpeg_dir = os.path.dirname(ffmpeg_path)
+    os.environ["PATH"] += os.pathsep + ffmpeg_dir
+    logger.info("Using local ffmpeg.exe")
+else:
+    logger.info("ffmpeg.exe not found, using system FFmpeg")
 
 if shutil.which("ffmpeg") is None:
     logger.warning("FFmpeg not found in PATH")
@@ -1540,6 +1582,9 @@ def upload_to_facebook(video_path, thumb_path, caption, comment_text, page_id, a
             
         logger.info(f"Reel Published! ID: {video_id}. Polling for status...")
         
+        # --- Update Scheduling after Success ---
+        update_scheduling()
+        
         # 4. Polling for Readiness
         for _ in range(10): # Max 5 minutes
             time.sleep(30)
@@ -1662,6 +1707,9 @@ async def run_one_cycle():
 
 if __name__ == "__main__":
     try:
+        # Check scheduling before starting cycle
+        check_scheduling()
+        
         asyncio.run(run_one_cycle())
     except KeyboardInterrupt:
         print("Bot stopped by user.")

@@ -780,6 +780,63 @@ def get_word_timestamps(audio_file):
 # Video Fetching & Processing
 # -----------------------------------------------------------------------------
 
+def download_via_invidious(youtube_url, output_path):
+    """Fallback: Downloads video using Invidious API to bypass datacenter blocks."""
+    logger.info(f"[Invidious] Attempting fallback for: {youtube_url}")
+    try:
+        # Extract Video ID
+        video_id = None
+        if "v=" in youtube_url:
+            video_id = youtube_url.split("v=")[1].split("&")[0]
+        elif "youtu.be/" in youtube_url:
+            video_id = youtube_url.split("youtu.be/")[1].split("?")[0]
+        
+        if not video_id:
+            logger.error("[Invidious] Could not extract video ID")
+            return None
+
+        # Public Invidious Instance API
+        instance_api = f"https://vid.puffyan.us/api/v1/videos/{video_id}"
+        logger.info(f"[Invidious] Fetching metadata from: {instance_api}")
+        
+        res = requests.get(instance_api, timeout=20)
+        res.raise_for_status()
+        data = res.json()
+        
+        # Search for a suitable stream
+        streams = data.get("formatStreams", [])
+        selected_stream = None
+        
+        # Priority: 720p mp4 > 360p mp4
+        for resolution in ["720p", "360p"]:
+            for s in streams:
+                if s.get("resolution") == resolution and "mp4" in s.get("container", "").lower():
+                    selected_stream = s
+                    break
+            if selected_stream: break
+            
+        if not selected_stream:
+            logger.warning("[Invidious] No suitable MP4 stream found")
+            return None
+            
+        stream_url = selected_stream.get("url")
+        logger.info(f"[Invidious] Downloading {selected_stream.get('resolution')} stream...")
+        
+        # Download the stream
+        with requests.get(stream_url, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            with open(output_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+            logger.info(f"[Invidious] Successfully downloaded to {output_path}")
+            return output_path
+            
+    except Exception as e:
+        logger.error(f"[Invidious] Fallback failed: {e}")
+    return None
+
 def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None):
     """
     Fetches official trailer via YT-DLP with capped retries and mobile spoofing.
@@ -868,20 +925,34 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
                         
             logger.info(f"Downloading video from: {current_video_url}")
             
-            # Use Rich Progress Bar
-            download_with_rich(ydl_opts, [current_video_url])
-            
-            # Robust file finding using glob
-            potential_files = glob.glob(os.path.join(TEMP_DIR, f"{raw_filename}*"))
-            if not potential_files:
-                 raise ValueError(f"Download failed for {movie_title} (No file found)")
-            
-            input_file = potential_files[0] # Take the first match
-            # Prefer .mp4 if multiple exist
-            for p in potential_files:
-                if p.endswith(".mp4"):
-                    input_file = p
-                    break
+            # Primary Method: YT-DLP
+            try:
+                # Use Rich Progress Bar
+                download_with_rich(ydl_opts, [current_video_url])
+                
+                # Robust file finding using glob
+                potential_files = glob.glob(os.path.join(TEMP_DIR, f"{raw_filename}*"))
+                if not potential_files:
+                     raise ValueError(f"Download failed for {movie_title} (No file found)")
+                
+                input_file = potential_files[0] # Take the first match
+                # Prefer .mp4 if multiple exist
+                for p in potential_files:
+                    if p.endswith(".mp4"):
+                        input_file = p
+                        break
+            except Exception as yt_err:
+                logger.warning(f"Primary YT-DLP download failed: {yt_err}")
+                logger.info("Attempting Invidious API Fallback...")
+                
+                # Fallback Method: Invidious
+                raw_path = os.path.join(TEMP_DIR, f"{raw_filename}.mp4")
+                fallback_file = download_via_invidious(current_video_url, raw_path)
+                
+                if fallback_file:
+                    input_file = fallback_file
+                else:
+                    raise ValueError(f"Both YT-DLP and Invidious fallback failed for {movie_title}")
 
             if not input_file or not os.path.exists(input_file):
                 raise ValueError(f"Download failed for {movie_title}")

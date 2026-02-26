@@ -641,7 +641,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
     """
     
     client = genai.Client(api_key=GEMINI_API_KEY)
-    models = ['gemini-2.0-flash-exp', 'gemini-2.0-flash', 'gemini-2.5-flash']
+    models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite-preview-06-17']
     
     for model_name in models:
         try:
@@ -657,7 +657,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
             logger.warning(f"{model_name} failed: {e}")
             
     # HARD STOP: If all Gemini models fail, ABORT the process.
-    error_msg = "❌ **فشل جودة:** نماذج Gemini (2.0-exp, 2.0, 2.5) لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
+    error_msg = "❌ **فشل جودة:** نماذج Gemini (2.5, 2.5-lite) لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
     logger.critical(error_msg)
     send_telegram_alert(error_msg)
     sys.exit(1) # Fail job in GitHub Actions
@@ -939,7 +939,7 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
             'retries': 3,
             'socket_timeout': 30,
             'merge_output_format': 'mp4',
-            'extractor_args': {'youtube': {'client': ['android', 'ios', 'web']}},
+            'extractor_args': {'youtube': {'player_client': ['web']}},
             'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}]
         }
         
@@ -1111,9 +1111,8 @@ def save_viral_queue(data):
 def get_yt_duration(url):
     """Fetches total duration using multi-strategy yt-dlp metadata extraction."""
     strategies = [
-        ("Default", {}),
-        ("Android", {'youtube': {'player_client': ['android']}}),
-        ("TV", {'youtube': {'player_client': ['tv']}})
+        ("Web", {'youtube': {'player_client': ['web']}}),
+        ("Default", {})
     ]
     
     for name, extractor_args in strategies:
@@ -1195,9 +1194,8 @@ def download_viral_chunk(duration=20):
             logger.info(f"Extracting clip: {used_seconds}s to {used_seconds + duration}s")
 
             strategies = [
-                ("Default", {}),
-                ("Android", {'youtube': {'player_client': ['android']}}),
-                ("TV", {'youtube': {'player_client': ['tv']}})
+                ("Web", {'youtube': {'player_client': ['web']}}),
+                ("Default", {})
             ]
             
             success = False

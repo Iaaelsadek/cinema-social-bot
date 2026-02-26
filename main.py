@@ -691,8 +691,9 @@ async def generate_audio(text, output_file, media_type="movie"):
             try:
                 logger.info(f"Attempting Alibaba CosyVoice-V3-Plus (Retry delay: {delay if delay != 5 else 'Initial'})...")
                 dashscope.api_key = ALIBABA_API_KEY
-                dashscope.base_http_api_url = 'https://dashscope-intl.aliyuncs.com/api/v1'
-                dashscope.base_websocket_api_url = 'wss://dashscope-intl.aliyuncs.com/api-ws/v1'
+                # Stability Fix: Use Singapore region for GitHub runners
+                dashscope.base_http_api_url = 'https://dashscope-intl.ap-southeast-1.aliyuncs.com/api/v1'
+                dashscope.base_websocket_api_url = 'wss://dashscope-intl.ap-southeast-1.aliyuncs.com/api-ws/v1'
                 
                 # Increase websocket timeout to 30s as requested
                 synthesizer = SpeechSynthesizer(
@@ -727,28 +728,20 @@ async def generate_audio(text, output_file, media_type="movie"):
                 await asyncio.sleep(delay)
         else:
             logger.error("All 3 Alibaba attempts failed.")
-            if media_type == "movie":
-                error_msg = "❌ **توقف جودة:** فشل Alibaba CosyVoice في توليد صوت الفيلم. تم إلغاء العملية للحفاظ على جودة العلامة التجارية."
-                logger.critical(error_msg)
-                send_telegram_alert(error_msg)
-                sys.exit(1) # Fail job in GitHub Actions
-            logger.warning("Falling back to Edge-TTS for non-movie content...")
+            logger.warning("⚠️ CRITICAL QUALITY FALLBACK: Alibaba failed. Using Edge-TTS as last resort to save the video.")
+            # Reset dashscope urls for any future attempts (though we are falling back now)
+            dashscope.base_http_api_url = 'https://dashscope-intl.aliyuncs.com/api/v1'
+            dashscope.base_websocket_api_url = 'wss://dashscope-intl.aliyuncs.com/api-ws/v1'
     else:
-        logger.warning("ALIBABA_API_KEY not found.")
-        if media_type == "movie":
-            error_msg = "❌ **توقف جودة:** ALIBABA_API_KEY غير موجود. تم إلغاء إنتاج الفيلم."
-            logger.critical(error_msg)
-            send_telegram_alert(error_msg)
-            sys.exit(0)
-        logger.warning("Skipping to Edge-TTS...")
+        logger.warning("ALIBABA_API_KEY not found. Using Edge-TTS.")
 
     # 2. Edge-TTS Fallback Logic
-    logger.info("Generating audio (Edge-TTS Fallback - Hamed)...")
+    logger.info("Generating audio (Edge-TTS Fallback - Hamdan)...")
     parts = text_cleaned.split("||PAUSE||")
     
     audio_clips = []
     temp_files = []
-    current_voice = "ar-SA-HamedNeural"
+    current_voice = "ar-EG-HamdanNeural" # High quality last resort voice
     
     try:
         segment_counter = 0
@@ -825,60 +818,67 @@ def get_word_timestamps(audio_file):
 def fallback_download_youtube(youtube_url, output_path):
     """Global Fallback: Downloads video using Invidious API to bypass datacenter blocks."""
     logger.info(f"[Invidious] Attempting global fallback for: {youtube_url}")
-    try:
-        # Extract Video ID
-        video_id = None
-        if "v=" in youtube_url:
-            video_id = youtube_url.split("v=")[1].split("&")[0]
-        elif "youtu.be/" in youtube_url:
-            video_id = youtube_url.split("youtu.be/")[1].split("?")[0]
-        elif "youtube.com/shorts/" in youtube_url:
-            video_id = youtube_url.split("shorts/")[1].split("?")[0]
-        
-        if not video_id:
-            logger.error("[Invidious] Could not extract video ID")
-            return None
+    
+    # Extract Video ID
+    video_id = None
+    if "v=" in youtube_url:
+        video_id = youtube_url.split("v=")[1].split("&")[0]
+    elif "youtu.be/" in youtube_url:
+        video_id = youtube_url.split("youtu.be/")[1].split("?")[0]
+    elif "youtube.com/shorts/" in youtube_url:
+        video_id = youtube_url.split("shorts/")[1].split("?")[0]
+    
+    if not video_id:
+        logger.error("[Invidious] Could not extract video ID")
+        return None
 
-        # Public Invidious Instance API
-        instance_api = f"https://vid.puffyan.us/api/v1/videos/{video_id}"
-        logger.info(f"[Invidious] Fetching metadata from: {instance_api}")
-        
-        res = requests.get(instance_api, timeout=20)
-        res.raise_for_status()
-        data = res.json()
-        
-        # Search for a suitable stream
-        streams = data.get("formatStreams", [])
-        selected_stream = None
-        
-        # Priority: 720p mp4 > 360p mp4
-        for resolution in ["720p", "360p"]:
-            for s in streams:
-                if s.get("resolution") == resolution and "mp4" in s.get("container", "").lower():
-                    selected_stream = s
-                    break
-            if selected_stream: break
-        
-        if not selected_stream:
-            logger.warning("[Invidious] No suitable MP4 stream found")
-            return None
-        
-        stream_url = selected_stream.get("url")
-        logger.info(f"[Invidious] Downloading {selected_stream.get('resolution')} stream...")
-        
-        # Download the stream
-        with requests.get(stream_url, stream=True, timeout=60) as r:
-            r.raise_for_status()
-            with open(output_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-        
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            logger.info(f"[Invidious] Successfully downloaded to {output_path}")
-            return output_path
-        
-    except Exception as e:
-        logger.error(f"[Invidious] Fallback failed: {e}")
+    # Public Invidious Instances (Ordered by reliability for GitHub Runners)
+    instances = [
+        f"https://vid.puffyan.us/api/v1/videos/{video_id}",
+        f"https://inv.vern.cc/api/v1/videos/{video_id}",
+        f"https://invidious.nerdvpn.de/api/v1/videos/{video_id}"
+    ]
+
+    for instance_api in instances:
+        try:
+            logger.info(f"[Invidious] Fetching metadata from: {instance_api}")
+            res = requests.get(instance_api, timeout=20)
+            res.raise_for_status()
+            data = res.json()
+            
+            # Search for a suitable stream
+            streams = data.get("formatStreams", [])
+            selected_stream = None
+            
+            # Priority: 720p mp4 > 360p mp4
+            for resolution in ["720p", "360p"]:
+                for s in streams:
+                    if s.get("resolution") == resolution and "mp4" in s.get("container", "").lower():
+                        selected_stream = s
+                        break
+                if selected_stream: break
+            
+            if not selected_stream:
+                logger.warning(f"[Invidious] No suitable MP4 stream found on {instance_api}")
+                continue
+            
+            stream_url = selected_stream.get("url")
+            logger.info(f"[Invidious] Downloading {selected_stream.get('resolution')} stream...")
+            
+            # Download the stream
+            with requests.get(stream_url, stream=True, timeout=60) as r:
+                r.raise_for_status()
+                with open(output_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                logger.info(f"[Invidious] Successfully downloaded to {output_path}")
+                return output_path
+            
+        except Exception as e:
+            logger.error(f"[Invidious] Instance {instance_api} failed: {e}")
+            
     return None
 
 def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None):

@@ -637,7 +637,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
     """
     
     client = genai.Client(api_key=GEMINI_API_KEY)
-    models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+    models = ['gemini-1.5-flash', 'gemini-1.5-pro']
     
     for model_name in models:
         try:
@@ -680,19 +680,25 @@ async def generate_audio(text, output_file):
     
     # 1. Alibaba CosyVoice Integration
     if ALIBABA_API_KEY:
-        retry_delays = [5, 10, 15, 20, 25]
+        retry_delays = [5, 10, 15] # 3 Attempts
         for delay in retry_delays:
             try:
                 logger.info(f"Attempting Alibaba CosyVoice-V3-Plus (Retry delay: {delay if delay != 5 else 'Initial'})...")
-                dashscope.api_key = os.getenv("ALIBABA_API_KEY")
+                dashscope.api_key = ALIBABA_API_KEY
                 dashscope.base_http_api_url = 'https://dashscope-intl.aliyuncs.com/api/v1'
                 dashscope.base_websocket_api_url = 'wss://dashscope-intl.aliyuncs.com/api-ws/v1'
-                synthesizer = SpeechSynthesizer(model="cosyvoice-v3-plus", voice="longxiaomiao_v2")
                 
-                # Alibaba handles the full text better, but we replace our separator with a comma or space for natural flow
+                # Increase websocket timeout to 20s as requested
+                synthesizer = SpeechSynthesizer(
+                    model="cosyvoice-v3-plus", 
+                    voice="longxiaomiao_v2"
+                )
+                
+                # Alibaba handles the full text better
                 alibaba_text = text_cleaned.replace("||PAUSE||", " ، ")
                 
-                audio_data = synthesizer.call(alibaba_text)
+                # Use websocket_timeout parameter in call() for stability
+                audio_data = synthesizer.call(alibaba_text, websocket_timeout=20)
                 
                 if audio_data:
                     with open(output_file, 'wb') as f:
@@ -714,7 +720,7 @@ async def generate_audio(text, output_file):
                 logger.warning(f"Alibaba API attempt failed: {e}. Retrying in {delay} seconds...")
                 await asyncio.sleep(delay)
         else:
-            logger.error("All 5 Alibaba attempts failed. Falling back to Edge-TTS...")
+            logger.error("All 3 Alibaba attempts failed. Falling back to Edge-TTS...")
     else:
         logger.warning("ALIBABA_API_KEY not found. Skipping to Edge-TTS...")
 

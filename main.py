@@ -782,20 +782,19 @@ def get_word_timestamps(audio_file):
 
 def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None):
     """
-    Fetches official trailer via YT-DLP with STRICT RETRY LOGIC (Progressive Backoff).
+    Fetches official trailer via YT-DLP with capped retries and mobile spoofing.
     """
     attempt = 0
-    # Linear Backoff Configuration
+    # Linear Backoff Configuration - CAPPED
     wait_time = 5
-    increment = 5
-    max_wait = 3600 # 1 Hour Cap
+    max_attempts = 3
     
     # Cache for search results to avoid re-searching
     cached_search_results = []
     
-    while wait_time <= max_wait:
+    while attempt < max_attempts:
         attempt += 1
-        logger.info(f"[Trailer] Attempt {attempt} for: {movie_title}")
+        logger.info(f"[Trailer] Attempt {attempt}/{max_attempts} for: {movie_title}")
         
         # Try fetching trailer from TMDB if tmdb_id is available and no trailer_url provided
         # Only on first attempt if we don't have a trailer_url
@@ -832,10 +831,12 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
         ydl_opts = {
             'format': 'bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': f'{TEMP_DIR}/{raw_filename}.%(ext)s',
-            'quiet': False,
+            'quiet': True,
+            'nocheckcertificate': True,
             'retries': 3,
             'socket_timeout': 30,
             'merge_output_format': 'mp4',
+            'extractor_args': {'youtube': {'client': ['android', 'ios', 'web']}},
             'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}]
         }
         
@@ -919,25 +920,22 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
             logger.error(f"Actual Trailer Error: {traceback.format_exc()}")
             
         # If we reach here, the attempt failed
-        logger.info(f"Waiting {wait_time} seconds before next attempt...")
-        
-        # Rich Countdown Timer
-        with get_progress_manager() as progress:
-             task = progress.add_task(f"[yellow]Retrying in {wait_time}s...", total=wait_time, filename="Countdown")
-             for _ in range(wait_time):
-                 time.sleep(1)
-                 progress.update(task, advance=1)
-        
-        # Increment backoff
-        wait_time += increment
+        if attempt < max_attempts:
+            logger.info(f"Waiting {wait_time} seconds before next attempt...")
+            
+            # Rich Countdown Timer
+            with get_progress_manager() as progress:
+                 task = progress.add_task(f"[yellow]Retrying in {wait_time}s...", total=wait_time, filename="Countdown")
+                 for _ in range(wait_time):
+                     time.sleep(1)
+                     progress.update(task, advance=1)
+            
+            # Simple wait time - capped
+            wait_time = min(wait_time + 5, 10)
     
-    # All attempts failed (After Linear Backoff Limit)
-    error_msg = f"Failed to fetch trailer for '{movie_title}' after linear backoff limit."
-    send_error_email("Trailer Fetch Failed", f"{error_msg}\nBot Stopped for 1 hour then Exiting.")
-    logger.critical(error_msg)
-    logger.info("Sleeping for 1 hour before exit...")
-    time.sleep(3600)
-    sys.exit(1)
+    # All attempts failed (After capped retries)
+    logger.warning(f"⚠️ Trailer fetch failed for '{movie_title}' after {max_attempts} attempts. Skipping trailer strategy...")
+    return None
 
 def get_video_content(item, title, duration, tmdb_id=None, trailer_url=None):
     """Orchestrates video fetching. STRICT MODE: Only Trailer."""

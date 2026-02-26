@@ -783,10 +783,11 @@ def get_word_timestamps(audio_file):
 def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None):
     """
     Fetches official trailer via YT-DLP with capped retries and mobile spoofing.
+    STRICT MODE: Exits if trailer fails.
     """
     attempt = 0
-    # Linear Backoff Configuration - CAPPED
-    wait_time = 5
+    # Fixed Backoff Configuration - 10s per user request
+    wait_time = 10
     max_attempts = 3
     
     # Cache for search results to avoid re-searching
@@ -929,13 +930,24 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
                  for _ in range(wait_time):
                      time.sleep(1)
                      progress.update(task, advance=1)
-            
-            # Simple wait time - capped
-            wait_time = min(wait_time + 5, 10)
     
-    # All attempts failed (After capped retries)
-    logger.warning(f"⚠️ Trailer fetch failed for '{movie_title}' after {max_attempts} attempts. Skipping trailer strategy...")
-    return None
+    # All attempts failed - STRICT MODE: ABORT & ALERT
+    error_msg = f"❌ **توقف طارئ:** فشل في تحميل إعلان فيلم/مسلسل {movie_title} من يوتيوب. تم إلغاء صناعة الفيديو."
+    logger.critical(error_msg)
+    
+    # 1. Send Telegram Alert
+    send_telegram_alert(error_msg)
+    
+    # 2. Send Email Alert
+    send_error_email(
+        "CRITICAL: Trailer Fetch Failed", 
+        f"The bot failed to download a trailer for '{movie_title}' after {max_attempts} attempts.\n"
+        "As per strict quality requirements, the video creation has been aborted to prevent trailer-less content."
+    )
+    
+    # 3. Graceful Exit (sys.exit(0) for GitHub Actions success)
+    logger.info("Exiting gracefully to prevent low-quality video generation.")
+    sys.exit(0)
 
 def get_video_content(item, title, duration, tmdb_id=None, trailer_url=None):
     """Orchestrates video fetching. STRICT MODE: Only Trailer."""

@@ -50,7 +50,7 @@ def check_scheduling():
         
         if elapsed < next_interval:
             remaining_mins = int((next_interval - elapsed) / 60)
-            logger.info(f"⏳ Waiting for the random schedule... Next post in {remaining_mins} minutes.")
+            logger.info(f"⏳ الانتظار للجدول العشوائي... النشر القادم بعد {remaining_mins} دقيقة.")
             sys.exit(0)
         else:
             logger.info(f"Schedule reached! Elapsed: {int(elapsed/3600)}h. Interval was: {int(next_interval/3600)}h.")
@@ -1856,8 +1856,10 @@ async def run_one_cycle():
         # 1. Content - New Catalog-driven Selection
         selected_content = await select_best_content()
         if not selected_content:
-            logger.warning("No new content found in Supabase (everything is already posted). Waiting for new movies/series...")
-            sys.exit(0) # Keep 0 for "nothing to do" scenarios
+            msg = "⚠️ لم يتم العثور على محتوى جديد في Supabase (تم نشر كل شيء). بانتظار إضافة أفلام جديدة..."
+            logger.warning(msg)
+            # send_telegram_alert(msg) # Optional: uncomment if you want an alert
+            sys.exit(0)
 
         title = selected_content['Title']
         # Use our own DB ID as movie_id for tracking, but keep tmdb_id for metadata

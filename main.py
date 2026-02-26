@@ -637,7 +637,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
     """
     
     client = genai.Client(api_key=GEMINI_API_KEY)
-    models = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro']
+    models = ['gemini-3.1-pro', 'gemini-3-flash', 'gemini-2.5-flash']
     
     for model_name in models:
         try:
@@ -652,8 +652,8 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
         except Exception as e:
             logger.warning(f"{model_name} failed: {e}")
             
-    # HARD STOP: If both Gemini 1.5 models fail, ABORT the process.
-    error_msg = "❌ **فشل جودة:** نماذج Gemini 1.5 لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
+    # HARD STOP: If all Gemini models fail, ABORT the process.
+    error_msg = "❌ **فشل جودة:** نماذج Gemini (3.1, 3, 2.5) لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
     logger.critical(error_msg)
     send_telegram_alert(error_msg)
     sys.exit(0)

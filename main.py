@@ -641,7 +641,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
     """
     
     client = genai.Client(api_key=GEMINI_API_KEY)
-    models = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.5-flash']
+    models = ['gemini-2.0-flash-exp', 'gemini-2.0-flash', 'gemini-2.5-flash']
     
     for model_name in models:
         try:
@@ -657,7 +657,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
             logger.warning(f"{model_name} failed: {e}")
             
     # HARD STOP: If all Gemini models fail, ABORT the process.
-    error_msg = "❌ **فشل جودة:** نماذج Gemini (1.5, 1.5, 2.5) لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
+    error_msg = "❌ **فشل جودة:** نماذج Gemini (2.0-exp, 2.0, 2.5) لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
     logger.critical(error_msg)
     send_telegram_alert(error_msg)
     sys.exit(1) # Fail job in GitHub Actions
@@ -705,7 +705,7 @@ async def generate_audio(text, output_file, media_type="movie"):
                 alibaba_text = text_cleaned.replace("||PAUSE||", " ، ")
                 
                 # Use websocket_timeout parameter in call() for stability
-                audio_data = synthesizer.call(alibaba_text, websocket_timeout=30)
+                audio_data = synthesizer.call(alibaba_text) # Removed websocket_timeout due to SDK incompatibility
                 
                 if audio_data:
                     with open(output_file, 'wb') as f:
@@ -931,7 +931,7 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
         cut_filename = f"movie_clip_{unique_id}.mp4"
         
         ydl_opts = {
-            'cookiefile': 'cookies.txt',
+            'cookiefile': os.path.abspath('cookies.txt'),
             'format': 'bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': f'{TEMP_DIR}/{raw_filename}.%(ext)s',
             'quiet': True,
@@ -1121,7 +1121,7 @@ def get_yt_duration(url):
             print(f"--- Strategy {name} Attempt for {url} Duration ---")
             logger.info(f"--- Strategy {name} Attempt for {url} Duration ---")
             ydl_opts = {
-                'cookiefile': 'cookies.txt',
+                'cookiefile': os.path.abspath('cookies.txt'),
                 'quiet': False,
                 'no_warnings': False,
                 'extract_flat': True,
@@ -1206,7 +1206,7 @@ def download_viral_chunk(duration=20):
                     print(f"--- Strategy {name} Attempt for {url} Download ---")
                     logger.info(f"--- Strategy {name} Attempt for {url} Download ---")
                     ydl_opts = {
-                        'cookiefile': 'cookies.txt',
+                        'cookiefile': os.path.abspath('cookies.txt'),
                         'format': 'bestvideo[ext=mp4][vcodec^=avc1]/best[ext=mp4]',
                         'quiet': False,
                         'no_warnings': False,

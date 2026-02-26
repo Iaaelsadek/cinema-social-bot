@@ -554,30 +554,48 @@ def download_file_with_retry(url, dest_path, retries=3, backoff=2):
     return False
 
 def get_thumbnail(tmdb_id, title):
-    """Enforces cinma.online as primary thumbnail source, fallback to TMDB."""
+    """Enforces cinma.online as primary thumbnail source, fallback to TMDB for poster & metadata."""
     safe_title = re.sub(r'[^a-zA-Z0-9]', '_', str(title))
     thumb_path = os.path.join(TEMP_DIR, f"thumb_{safe_title}.jpg")
+    overview = None
     
     # 1. Try Cinma.online (Enforced Priority)
     cinma_url = f"https://cinma.online/wp-content/uploads/thumbnails/{tmdb_id}.jpg"
     if download_file_with_retry(cinma_url, thumb_path):
         logger.info(f"Thumbnail sourced from cinma.online for ID {tmdb_id}")
-        return thumb_path
+        # Note: Overview still needs to be fetched from Playwright scraper or TMDB
+    else:
+        logger.warning(f"Thumbnail not found on cinma.online for ID {tmdb_id}. Falling back to TMDB.")
         
-    # 2. Fallback to TMDB
+    # 2. Fallback to TMDB (Poster & Metadata)
     try:
-        url = f"https://api.themoviedb.org/3/movie/{tmdb_id}?api_key={TMDB_API_KEY}"
-        data = requests.get(url).json()
-        poster_path = data.get('poster_path')
-        if poster_path:
-            tmdb_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
-            if download_file_with_retry(tmdb_url, thumb_path):
-                logger.info(f"Thumbnail sourced from TMDB for ID {tmdb_id}")
-                return thumb_path
-    except:
-        pass
+        # Fetch with Arabic language preference
+        url = f"https://api.themoviedb.org/3/movie/{tmdb_id}?api_key={TMDB_API_KEY}&language=ar-SA"
+        res = requests.get(url, timeout=15)
+        if res.status_code == 200:
+            data = res.json()
+            
+            # Fetch Arabic Overview
+            overview = data.get('overview')
+            if not overview:
+                # Fallback to English if Arabic is missing
+                logger.warning(f"Arabic overview missing for {tmdb_id}, trying English.")
+                en_url = f"https://api.themoviedb.org/3/movie/{tmdb_id}?api_key={TMDB_API_KEY}"
+                en_data = requests.get(en_url, timeout=10).json()
+                overview = en_data.get('overview')
+
+            # Fetch High-Res Poster if thumb_path doesn't exist yet
+            if not os.path.exists(thumb_path):
+                poster_path = data.get('poster_path')
+                if poster_path:
+                    # Use original resolution as requested
+                    tmdb_url = f"https://image.tmdb.org/t/p/original{poster_path}"
+                    if download_file_with_retry(tmdb_url, thumb_path):
+                        logger.info(f"High-res poster sourced from TMDB for ID {tmdb_id}")
+    except Exception as e:
+        logger.error(f"TMDB fallback failed for ID {tmdb_id}: {e}")
         
-    return None
+    return thumb_path if os.path.exists(thumb_path) else None, overview
 
 def generate_script(title, overview, media_type="movie", genre_ar="الدراما", max_duration=None):
     """
@@ -780,9 +798,9 @@ def get_word_timestamps(audio_file):
 # Video Fetching & Processing
 # -----------------------------------------------------------------------------
 
-def download_via_invidious(youtube_url, output_path):
-    """Fallback: Downloads video using Invidious API to bypass datacenter blocks."""
-    logger.info(f"[Invidious] Attempting fallback for: {youtube_url}")
+def fallback_download_youtube(youtube_url, output_path):
+    """Global Fallback: Downloads video using Invidious API to bypass datacenter blocks."""
+    logger.info(f"[Invidious] Attempting global fallback for: {youtube_url}")
     try:
         # Extract Video ID
         video_id = None
@@ -790,6 +808,8 @@ def download_via_invidious(youtube_url, output_path):
             video_id = youtube_url.split("v=")[1].split("&")[0]
         elif "youtu.be/" in youtube_url:
             video_id = youtube_url.split("youtu.be/")[1].split("?")[0]
+        elif "youtube.com/shorts/" in youtube_url:
+            video_id = youtube_url.split("shorts/")[1].split("?")[0]
         
         if not video_id:
             logger.error("[Invidious] Could not extract video ID")
@@ -814,11 +834,11 @@ def download_via_invidious(youtube_url, output_path):
                     selected_stream = s
                     break
             if selected_stream: break
-            
+        
         if not selected_stream:
             logger.warning("[Invidious] No suitable MP4 stream found")
             return None
-            
+        
         stream_url = selected_stream.get("url")
         logger.info(f"[Invidious] Downloading {selected_stream.get('resolution')} stream...")
         
@@ -828,11 +848,11 @@ def download_via_invidious(youtube_url, output_path):
             with open(output_path, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
-                    
+        
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
             logger.info(f"[Invidious] Successfully downloaded to {output_path}")
             return output_path
-            
+        
     except Exception as e:
         logger.error(f"[Invidious] Fallback failed: {e}")
     return None
@@ -943,16 +963,16 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
                         break
             except Exception as yt_err:
                 logger.warning(f"Primary YT-DLP download failed: {yt_err}")
-                logger.info("Attempting Invidious API Fallback...")
-                
-                # Fallback Method: Invidious
-                raw_path = os.path.join(TEMP_DIR, f"{raw_filename}.mp4")
-                fallback_file = download_via_invidious(current_video_url, raw_path)
-                
-                if fallback_file:
-                    input_file = fallback_file
+                if "youtube.com" in current_video_url or "youtu.be" in current_video_url:
+                    logger.info("Attempting Invidious API Fallback...")
+                    # Fallback Method: Invidious
+                    raw_path = os.path.join(TEMP_DIR, f"{raw_filename}.mp4")
+                    input_file = fallback_download_youtube(current_video_url, raw_path)
+                    
+                    if not input_file:
+                        raise ValueError(f"Both YT-DLP and Invidious fallback failed for {movie_title}")
                 else:
-                    raise ValueError(f"Both YT-DLP and Invidious fallback failed for {movie_title}")
+                    raise ValueError(f"Primary YT-DLP download failed for non-YouTube URL: {yt_err}")
 
             if not input_file or not os.path.exists(input_file):
                 raise ValueError(f"Download failed for {movie_title}")
@@ -1169,7 +1189,17 @@ def download_viral_chunk(duration=20):
                         ydl_opts['extractor_args'] = extractor_args
                         
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
+                        try:
+                            info = ydl.extract_info(url, download=False)
+                        except Exception as e:
+                            if ("youtube.com" in url or "youtu.be" in url) and name == strategies[-1][0]:
+                                logger.warning(f"YT-DLP exhausted all strategies for {url}. Attempting Invidious fallback...")
+                                fallback_path = fallback_download_youtube(url, output_path)
+                                if fallback_path:
+                                    success = True
+                                    break
+                            raise e
+
                         if info.get('is_live'):
                             print(f"--- URL is a livestream, skipping: {url} ---")
                             logger.warning(f"URL is a livestream, skipping: {url}")
@@ -1187,6 +1217,12 @@ def download_viral_chunk(duration=20):
                         if not stream_url:
                             print(f"--- No stream URL found in strategy {name} ---")
                             logger.warning(f"No stream URL found in strategy {name}")
+                            if ("youtube.com" in url or "youtu.be" in url) and name == strategies[-1][0]:
+                                logger.info("Attempting Invidious fallback due to no stream URL...")
+                                fallback_path = fallback_download_youtube(url, output_path)
+                                if fallback_path:
+                                    success = True
+                                    break
                             continue
 
                         print(f"--- Strategy {name} Extraction Start ---")
@@ -1227,11 +1263,55 @@ def download_viral_chunk(duration=20):
                             err_msg = result.stderr.decode(errors='ignore') if result.stderr else "Unknown error"
                             print(f"--- Strategy {name} FFmpeg failed: {err_msg} ---")
                             logger.warning(f"Strategy {name} FFmpeg failed: {err_msg}")
+                            if ("youtube.com" in url or "youtu.be" in url) and name == strategies[-1][0]:
+                                logger.info("Attempting Invidious fallback due to FFmpeg failure...")
+                                # For viral chunks, we need to cut it. fallback_download_youtube downloads full video.
+                                # We can download full then cut.
+                                full_temp = f"{TEMP_DIR}/full_fallback_{video_id}.mp4"
+                                if fallback_download_youtube(url, full_temp):
+                                    cut_cmd[6] = full_temp # Use downloaded file instead of stream_url
+                                    result = subprocess.run(cut_cmd, capture_output=True)
+                                    if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 5000:
+                                        logger.info("Invidious fallback + FFmpeg cut successful.")
+                                        queue["tracking"][url] = used_seconds + duration
+                                        save_viral_queue(queue)
+                                        try: os.remove(full_temp)
+                                        except: pass
+                                        return output_path
+                                try: os.remove(full_temp)
+                                except: pass
                             continue
                             
                 except Exception as e:
                     print(f"--- Strategy {name} Download Failed: {e} ---")
                     logger.warning(f"Strategy {name} failed for {url}: {e}")
+                    if ("youtube.com" in url or "youtu.be" in url) and name == strategies[-1][0]:
+                        logger.info("Attempting Invidious fallback after all strategies failed...")
+                        full_temp = f"{TEMP_DIR}/full_fallback_{video_id}.mp4"
+                        if fallback_download_youtube(url, full_temp):
+                             # Need to cut it
+                             cut_cmd = [
+                                "ffmpeg", "-y",
+                                "-ss", str(used_seconds),
+                                "-t", str(duration),
+                                "-i", full_temp,
+                                "-map", "0:v:0",
+                                "-c:v", "copy",
+                                "-an",
+                                "-f", "mp4",
+                                "-movflags", "+faststart",
+                                output_path
+                            ]
+                             result = subprocess.run(cut_cmd, capture_output=True)
+                             if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 5000:
+                                 logger.info("Invidious fallback + FFmpeg cut successful.")
+                                 queue["tracking"][url] = used_seconds + duration
+                                 save_viral_queue(queue)
+                                 try: os.remove(full_temp)
+                                 except: pass
+                                 return output_path
+                        try: os.remove(full_temp)
+                        except: pass
                     continue
             
             print(f"--- All download strategies failed for {url} ---")
@@ -1764,7 +1844,7 @@ async def run_one_cycle():
         media_type = selected_content['Type'].lower()
         media_type_ar = "فيلم" if media_type == "movie" else "مسلسل"
         watch_url = selected_content['Watch_URL']
-        overview = selected_content['overview']
+        overview = selected_content.get('overview')
         title_en = title
         
         # Get Arabic Genre from TMDB IDs
@@ -1774,10 +1854,21 @@ async def run_one_cycle():
 
         logger.info(f"Processing Catalog Item: {title} ({media_type})")
 
-        # Download poster for branding if available
-        poster_path = download_movie_poster(poster_url) if poster_url else None
+        # 2. Metadata Fallback (Poster & Metadata Plan B)
+        final_thumb, tmdb_overview = get_thumbnail(movie_id, title)
         
-        # 2. Script
+        # If overview is missing or empty, use TMDB fallback
+        if not overview or len(str(overview).strip()) < 10:
+            if tmdb_overview:
+                logger.info(f"Using TMDB fallback overview for '{title}'")
+                overview = tmdb_overview
+            else:
+                logger.warning(f"No overview found in Supabase or TMDB for '{title}'")
+        
+        # Poster for branding (use final_thumb as primary, download_movie_poster as fallback)
+        poster_path = final_thumb if final_thumb else (download_movie_poster(poster_url) if poster_url else None)
+        
+        # 3. Script
         script, caption = generate_script(title, overview, media_type, genre_ar)
         
         # 3. Audio
@@ -1805,8 +1896,7 @@ async def run_one_cycle():
                 logger.error("Reel generation failed.")
                 return
             
-            # 5. Thumbnail & Metadata
-            final_thumb = get_thumbnail(movie_id, title)
+            # 5. Metadata
             final_caption = f"{caption}\n\n#سينما_أونلاين #ترشيحات_أفلام\n{WEBSITE_TEXT}"
             final_comment = f"لمشاهدة ال{media_type_ar} كاملاً وبدون اعلانات:\n{watch_url}"
             

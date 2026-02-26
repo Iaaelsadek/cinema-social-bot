@@ -641,7 +641,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
     """
     
     client = genai.Client(api_key=GEMINI_API_KEY)
-    models = ['gemini-3.1-pro', 'gemini-3-flash', 'gemini-2.5-flash']
+    models = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.5-flash']
     
     for model_name in models:
         try:
@@ -657,7 +657,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
             logger.warning(f"{model_name} failed: {e}")
             
     # HARD STOP: If all Gemini models fail, ABORT the process.
-    error_msg = "❌ **فشل جودة:** نماذج Gemini (3.1, 3, 2.5) لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
+    error_msg = "❌ **فشل جودة:** نماذج Gemini (1.5, 1.5, 2.5) لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
     logger.critical(error_msg)
     send_telegram_alert(error_msg)
     sys.exit(1) # Fail job in GitHub Actions
@@ -705,7 +705,7 @@ async def generate_audio(text, output_file, media_type="movie"):
                 alibaba_text = text_cleaned.replace("||PAUSE||", " ، ")
                 
                 # Use websocket_timeout parameter in call() for stability
-                audio_data = synthesizer.call(alibaba_text, websocket_timeout=30)
+                audio_data = synthesizer.call(alibaba_text) # Removed websocket_timeout due to SDK incompatibility
                 
                 if audio_data:
                     with open(output_file, 'wb') as f:

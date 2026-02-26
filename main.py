@@ -637,7 +637,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
     """
     
     client = genai.Client(api_key=GEMINI_API_KEY)
-    models = ['gemini-1.5-flash', 'gemini-1.5-pro']
+    models = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro']
     
     for model_name in models:
         try:
@@ -652,9 +652,11 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
         except Exception as e:
             logger.warning(f"{model_name} failed: {e}")
             
-    # Reliable Fallback
-    fallback_body = "فِي سِيَاقٍ سَرْدِيٍّ مَشْوِّقٍ، نَتَتَبَّعُ حِكَايَةَ بَطَلٍ يُوَاجِهُ تَحَدِّيَاتٍ غَيْرَ مَسْبُوقَةٍ، حَيْثُ تَتَشَابَكُ الأَقْدَارُ لِتَكْشِفَ عَنْ أَسْرَارٍ خَفِيَّةٍ. تَبْدَأُ الرِّحْلَةُ بِمُفَاجَأَةٍ تُغَيِّرُ مَسَارَ كُلِّ شَيْءٍ."
-    return f"قِصِّتْنَا اِنَّهَارْدَة عَنْ {media_type_ar} {genre_text}{title} [PAUSE] {fallback_body} [PAUSE] لمشاهدت ال{media_type_ar} كامِلُ وبدون اعلانات , ستجد الرابِت في اول تعليِق , مٌشاهدَة ممتعة", "Check the first comment!"
+    # HARD STOP: If both Gemini 1.5 models fail, ABORT the process.
+    error_msg = "❌ **فشل جودة:** نماذج Gemini 1.5 لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
+    logger.critical(error_msg)
+    send_telegram_alert(error_msg)
+    sys.exit(0)
 
 
 def clean_text_for_tts(text):
@@ -673,7 +675,7 @@ def create_silence(duration=0.3):
     """Creates a silent audio clip (reduced to 0.3s to save time)."""
     return AudioArrayClip(np.zeros((int(44100 * duration), 2)), fps=44100)
 
-async def generate_audio(text, output_file):
+async def generate_audio(text, output_file, media_type="movie"):
     """Generates audio using Alibaba CosyVoice with Edge-TTS fallback."""
     logger.info("Generating audio (Prioritizing Alibaba CosyVoice)...")
     text_cleaned = re.sub(r'\[.*?\]', '', text.replace("[PAUSE]", "||PAUSE||"))
@@ -688,7 +690,7 @@ async def generate_audio(text, output_file):
                 dashscope.base_http_api_url = 'https://dashscope-intl.aliyuncs.com/api/v1'
                 dashscope.base_websocket_api_url = 'wss://dashscope-intl.aliyuncs.com/api-ws/v1'
                 
-                # Increase websocket timeout to 20s as requested
+                # Increase websocket timeout to 30s as requested
                 synthesizer = SpeechSynthesizer(
                     model="cosyvoice-v3-plus", 
                     voice="longxiaomiao_v2"
@@ -698,7 +700,7 @@ async def generate_audio(text, output_file):
                 alibaba_text = text_cleaned.replace("||PAUSE||", " ، ")
                 
                 # Use websocket_timeout parameter in call() for stability
-                audio_data = synthesizer.call(alibaba_text, websocket_timeout=20)
+                audio_data = synthesizer.call(alibaba_text, websocket_timeout=30)
                 
                 if audio_data:
                     with open(output_file, 'wb') as f:
@@ -720,9 +722,21 @@ async def generate_audio(text, output_file):
                 logger.warning(f"Alibaba API attempt failed: {e}. Retrying in {delay} seconds...")
                 await asyncio.sleep(delay)
         else:
-            logger.error("All 3 Alibaba attempts failed. Falling back to Edge-TTS...")
+            logger.error("All 3 Alibaba attempts failed.")
+            if media_type == "movie":
+                error_msg = "❌ **توقف جودة:** فشل Alibaba CosyVoice في توليد صوت الفيلم. تم إلغاء العملية للحفاظ على جودة العلامة التجارية."
+                logger.critical(error_msg)
+                send_telegram_alert(error_msg)
+                sys.exit(0)
+            logger.warning("Falling back to Edge-TTS for non-movie content...")
     else:
-        logger.warning("ALIBABA_API_KEY not found. Skipping to Edge-TTS...")
+        logger.warning("ALIBABA_API_KEY not found.")
+        if media_type == "movie":
+            error_msg = "❌ **توقف جودة:** ALIBABA_API_KEY غير موجود. تم إلغاء إنتاج الفيلم."
+            logger.critical(error_msg)
+            send_telegram_alert(error_msg)
+            sys.exit(0)
+        logger.warning("Skipping to Edge-TTS...")
 
     # 2. Edge-TTS Fallback Logic
     logger.info("Generating audio (Edge-TTS Fallback - Hamed)...")
@@ -1879,7 +1893,7 @@ async def run_one_cycle():
         
         # 3. Audio
         audio_path = f"{TEMP_DIR}/voiceover.mp3"
-        audio_duration = await generate_audio(script, audio_path)
+        audio_duration = await generate_audio(script, audio_path, media_type=media_type)
         if audio_duration and audio_duration < 55:
             logger.warning(f"Audio too short ({audio_duration:.1f} seconds), video will be short.")
         

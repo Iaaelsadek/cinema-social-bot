@@ -619,7 +619,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
     """
     
     client = genai.Client(api_key=GEMINI_API_KEY)
-    models = ['gemini-3-flash', 'gemini-2.5-flash', 'gemini-3.1-pro']
+    models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
     
     for model_name in models:
         try:

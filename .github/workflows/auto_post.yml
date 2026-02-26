@@ -39,8 +39,16 @@ jobs:
 
       - name: Install Node.js for yt-dlp
         run: |
-          sudo apt-get install -y nodejs
-          
+          sudo apt-get install -y nodejs npm
+          node --version
+          # تأكد yt-dlp يشوف node
+          which node
+          pip install yt-dlp --upgrade
+
+      - name: Setup yt-dlp with PO Token
+        run: |
+          pip install yt-dlp --upgrade
+          # استخدم web player بدون JS challenge
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip

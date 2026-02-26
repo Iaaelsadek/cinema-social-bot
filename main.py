@@ -629,7 +629,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
     - NO English letters. Transliterate phonetically (e.g., "Matrix" -> "مَاتْرِكْس").
     - Full diacritics on ALL names and foreign terms.
     
-    **Caption:** White Egyptian Dialect, high-suspense, includes #سينما_أونلاين.
+    **Caption:** Modern Standard Arabic (Fus'ha), high-suspense, includes #سينما_أونلاين.
     
     **Context:** {overview}
     
@@ -883,7 +883,12 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
             'retries': 3,
             'socket_timeout': 30,
             'merge_output_format': 'mp4',
-            'extractor_args': {'youtube': {'player_client': ['web']}},
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['web'],
+                    'player_skip': ['webpage', 'js'],
+                }
+            },
             'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}]
         }
         
@@ -1055,6 +1060,7 @@ def save_viral_queue(data):
 def get_yt_duration(url):
     """Fetches total duration using multi-strategy yt-dlp metadata extraction."""
     strategies = [
+        ("Web-PO", {'youtube': {'player_client': ['web'], 'player_skip': ['webpage', 'js']}}),
         ("Web", {'youtube': {'player_client': ['web']}}),
         ("Default", {})
     ]
@@ -1138,6 +1144,7 @@ def download_viral_chunk(duration=20):
             logger.info(f"Extracting clip: {used_seconds}s to {used_seconds + duration}s")
 
             strategies = [
+                ("Web-PO", {'youtube': {'player_client': ['web'], 'player_skip': ['webpage', 'js']}}),
                 ("Web", {'youtube': {'player_client': ['web']}}),
                 ("Default", {})
             ]
@@ -1676,10 +1683,11 @@ def reply_to_comments(page_id, access_token):
                 Reply ONLY with JSON: {{"needs_reply": true/false, "reply_text_ar": "..."}}
                 
                 If true:
-                Generate a fun, smart, short Arabic reply (Egyptian dialect). 
+                Generate a fun, smart, short Arabic reply (Modern Standard Arabic - Fus'ha). 
+                Maintain a dramatic storyteller persona (Hamed style).
                 Include the movie name "{movie_name_context}" if known.
                 Tell them the link is in the first comment or use "https://cinma.online".
-                Example: "اسم الفيلم {movie_name_context} يا غالي! والرابط في أول تعليق مشاهدة ممتعة �"
+                Example: "اسم الفيلم {movie_name_context} يا بطل! الرابط في أول تعليق، مشاهدة ممتعة 🎬"
                 """
                 
                 try:

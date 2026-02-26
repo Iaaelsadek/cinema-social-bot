@@ -5,13 +5,12 @@ A fully automated AI-powered bot that creates and posts viral movie reels to Fac
 ## 🚀 Features
 
 ### 1. **Smart Script Generation (Gemini AI)**
-- **Persona**: "Saye3" (Egyptian Street Smart).
-- **Language**: Cairo Slang (Ammiya).
-- **Style**: Storytelling/Gossip style ("يا جدعان"، "الليلة فيها إن").
-- **Model Fallback**: Tries `gemini-2.5-flash` -> `gemini-2.0-flash` -> `gemini-1.5-flash`.
+- **Persona**: "Master Storyteller" (Arabic Fus'ha with Tashkeel).
+- **Style**: Dramatic storytelling with full diacritics for accurate TTS.
+- **Model Fallback**: Tries `gemini-2.5-flash` -> `gemini-2.5-flash-lite`.
 
 ### 2. **Natural Voiceover (Edge-TTS)**
-- **Voice**: `ar-EG-SalmaNeural` (Egyptian Female).
+- **Voice**: `ar-SA-HamedNeural` (Saudi Male).
 - **Phonetic Cleaning**: Pre-processes text to ensure natural pronunciation of numbers and English names.
 
 ### 3. **Intelligent Video Retrieval (3-Tier System)**
@@ -57,4 +56,4 @@ A fully automated AI-powered bot that creates and posts viral movie reels to Fac
 
 ### Known Limitations
 - **Whisper**: Currently returns dummy timestamps if FFmpeg is not fully configured in the system PATH. Subtitles will appear but might not be perfectly synced word-by-word.
-- **Tier 1**: Relies on `yt-dlp`. If YouTube updates their anti-bot measures, this might fail (fallbacks to Tier 2 automatically).
+- **Tier 1**: Relies on `yt-dlp`. Optimized for anti-bot measures using **Node.js** execution and **PO Token** strategies (Web player client).

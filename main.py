@@ -931,6 +931,7 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
         cut_filename = f"movie_clip_{unique_id}.mp4"
         
         ydl_opts = {
+            'cookiefile': 'cookies.txt',
             'format': 'bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': f'{TEMP_DIR}/{raw_filename}.%(ext)s',
             'quiet': True,
@@ -1120,6 +1121,7 @@ def get_yt_duration(url):
             print(f"--- Strategy {name} Attempt for {url} Duration ---")
             logger.info(f"--- Strategy {name} Attempt for {url} Duration ---")
             ydl_opts = {
+                'cookiefile': 'cookies.txt',
                 'quiet': False,
                 'no_warnings': False,
                 'extract_flat': True,
@@ -1204,6 +1206,7 @@ def download_viral_chunk(duration=20):
                     print(f"--- Strategy {name} Attempt for {url} Download ---")
                     logger.info(f"--- Strategy {name} Attempt for {url} Download ---")
                     ydl_opts = {
+                        'cookiefile': 'cookies.txt',
                         'format': 'bestvideo[ext=mp4][vcodec^=avc1]/best[ext=mp4]',
                         'quiet': False,
                         'no_warnings': False,

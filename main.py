@@ -1504,25 +1504,29 @@ def create_reel(video_path, audio_path, words, output_path, movie_title_en="", p
         
         top_clip = top_clip.with_position((0, 0))
         clips_to_composite.append(top_clip)
-    elif poster_path and os.path.exists(poster_path):
+    elif poster_path and os.path.exists(poster_path) and os.path.getsize(poster_path) > 0:
         logger.info("Using Poster/Image as fallback for Top Screen...")
-        # Load image, resize to fill width, then center crop/pan
-        img_clip = ImageClip(poster_path).with_duration(total_duration)
-        
-        # Calculate resize to fill 1080x1152
-        w_img, h_img = img_clip.size
-        scale = max(1080/w_img, 1152/h_img)
-        img_clip = img_clip.with_effects([vfx.Resize(scale)])
-        
-        # Center Crop
-        img_clip = img_clip.cropped(x1=(img_clip.w - 1080)//2, y1=(img_clip.h - 1152)//2, width=1080, height=1152)
-        
-        # Apply Ken Burns effect (Subtle Zoom)
-        img_clip = img_clip.with_effects([vfx.Resize(lambda t: 1.0 + 0.05 * (t/total_duration))])
-        img_clip = img_clip.cropped(x1=(img_clip.w - 1080)//2, y1=(img_clip.h - 1152)//2, width=1080, height=1152)
-        
-        img_clip = img_clip.with_position((0, 0))
-        clips_to_composite.append(img_clip)
+        try:
+            # Load image, resize to fill width, then center crop/pan
+            img_clip = ImageClip(poster_path).with_duration(total_duration)
+            
+            # Calculate resize to fill 1080x1152
+            w_img, h_img = img_clip.size
+            scale = max(1080/w_img, 1152/h_img)
+            img_clip = img_clip.with_effects([vfx.Resize(scale)])
+            
+            # Center Crop
+            img_clip = img_clip.cropped(x1=(img_clip.w - 1080)//2, y1=(img_clip.h - 1152)//2, width=1080, height=1152)
+            
+            # Apply Ken Burns effect (Subtle Zoom)
+            img_clip = img_clip.with_effects([vfx.Resize(lambda t: 1.0 + 0.05 * (t/total_duration))])
+            img_clip = img_clip.cropped(x1=(img_clip.w - 1080)//2, y1=(img_clip.h - 1152)//2, width=1080, height=1152)
+            
+            img_clip = img_clip.with_position((0, 0))
+            clips_to_composite.append(img_clip)
+        except Exception as e:
+            logger.error(f"ImageClip failed for {poster_path}: {e}")
+            clips_to_composite.append(ColorClip(size=(1080, 1152), color=(0,0,0), duration=total_duration).with_position((0,0)))
     else:
         logger.warning("No video or poster path found for Top Screen.")
         clips_to_composite.append(ColorClip(size=(1080, 1152), color=(0,0,0), duration=total_duration).with_position((0,0)))

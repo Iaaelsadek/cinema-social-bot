@@ -15,6 +15,10 @@ STATE_FILE = "bot_state.json"
 
 def check_scheduling():
     """Checks if it's time to post based on randomized interval."""
+    if os.environ.get("FORCE_POST") == "true":
+        logger.info("🚀 FORCE_POST detected! Bypassing schedule...")
+        return
+
     if not os.path.exists(STATE_FILE):
         logger.info("No bot_state.json found. Proceeding with first run...")
         # Initialize with default values if it doesn't exist
@@ -656,7 +660,7 @@ def generate_script(title, overview, media_type="movie", genre_ar="الدرام�
     error_msg = "❌ **فشل جودة:** نماذج Gemini (3.1, 3, 2.5) لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
     logger.critical(error_msg)
     send_telegram_alert(error_msg)
-    sys.exit(0)
+    sys.exit(1) # Fail job in GitHub Actions
 
 
 def clean_text_for_tts(text):
@@ -727,7 +731,7 @@ async def generate_audio(text, output_file, media_type="movie"):
                 error_msg = "❌ **توقف جودة:** فشل Alibaba CosyVoice في توليد صوت الفيلم. تم إلغاء العملية للحفاظ على جودة العلامة التجارية."
                 logger.critical(error_msg)
                 send_telegram_alert(error_msg)
-                sys.exit(0)
+                sys.exit(1) # Fail job in GitHub Actions
             logger.warning("Falling back to Edge-TTS for non-movie content...")
     else:
         logger.warning("ALIBABA_API_KEY not found.")
@@ -1852,8 +1856,8 @@ async def run_one_cycle():
         # 1. Content - New Catalog-driven Selection
         selected_content = await select_best_content()
         if not selected_content:
-            logger.error("No new content selected from catalog. Exiting.")
-            sys.exit(0)
+            logger.warning("No new content found in Supabase (everything is already posted). Waiting for new movies/series...")
+            sys.exit(0) # Keep 0 for "nothing to do" scenarios
 
         title = selected_content['Title']
         # Use our own DB ID as movie_id for tracking, but keep tmdb_id for metadata

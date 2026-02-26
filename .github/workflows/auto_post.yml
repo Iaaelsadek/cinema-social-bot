@@ -5,6 +5,12 @@ on:
     # Runs HOURLY to check the randomized schedule
     - cron: '0 * * * *'
   workflow_dispatch:
+    inputs:
+      force_post:
+        description: 'Force post regardless of schedule'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   build-and-post:
@@ -52,6 +58,7 @@ jobs:
           ALIBABA_API_KEY: ${{ secrets.ALIBABA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FORCE_POST: ${{ github.event.inputs.force_post || 'false' }}
         run: |
           python main.py
 

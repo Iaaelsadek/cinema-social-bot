@@ -131,7 +131,7 @@ def scrape_cinma_online():
             
         if not catalog and posted_ids:
             logger.warning("All fetched content from Supabase has already been posted. Waiting for new content...")
-            sys.exit(0)
+            return []
 
         logger.info(f"Retrieved {len(catalog)} new items from Supabase (filtered).")
         return catalog

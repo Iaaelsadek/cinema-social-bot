@@ -876,7 +876,7 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
         
         ydl_opts = {
             'cookiefile': os.path.abspath('cookies.txt'),
-            'format': 'bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': 'bestvideo+bestaudio/best',
             'outtmpl': f'{TEMP_DIR}/{raw_filename}.%(ext)s',
             'quiet': True,
             'nocheckcertificate': True,
@@ -996,23 +996,14 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
                      time.sleep(1)
                      progress.update(task, advance=1)
     
-    # All attempts failed - STRICT MODE: ABORT & ALERT
-    error_msg = f"❌ **توقف طارئ:** فشل في تحميل إعلان فيلم/مسلسل {movie_title} من يوتيوب. تم إلغاء صناعة الفيديو."
-    logger.critical(error_msg)
+    # All attempts failed - FALLBACK TO POSTER/IMAGE MODE
+    error_msg = f"⚠️ **تحذير:** فشل في تحميل إعلان فيلم/مسلسل {movie_title}. سيتم استخدام صورة الغلاف بدلاً من الإعلان."
+    logger.warning(error_msg)
     
     # 1. Send Telegram Alert
-    send_telegram_alert(error_msg)
+    send_telegram_alert(f"🎬 {movie_title}: تم استخدام صورة الغلاف لعدم توفر الإعلان")
     
-    # 2. Send Email Alert
-    send_error_email(
-        "CRITICAL: Trailer Fetch Failed", 
-        f"The bot failed to download a trailer for '{movie_title}' after {max_attempts} attempts.\n"
-        "As per strict quality requirements, the video creation has been aborted to prevent trailer-less content."
-    )
-    
-    # 3. Graceful Exit (sys.exit(0) for GitHub Actions success)
-    logger.info("Exiting gracefully to prevent low-quality video generation.")
-    sys.exit(0)
+    return None # create_reel will handle None by using a background image/color
 
 def get_video_content(item, title, duration, tmdb_id=None, trailer_url=None):
     """Orchestrates video fetching. STRICT MODE: Only Trailer."""
@@ -1513,8 +1504,27 @@ def create_reel(video_path, audio_path, words, output_path, movie_title_en="", p
         
         top_clip = top_clip.with_position((0, 0))
         clips_to_composite.append(top_clip)
+    elif poster_path and os.path.exists(poster_path):
+        logger.info("Using Poster/Image as fallback for Top Screen...")
+        # Load image, resize to fill width, then center crop/pan
+        img_clip = ImageClip(poster_path).with_duration(total_duration)
+        
+        # Calculate resize to fill 1080x1152
+        w_img, h_img = img_clip.size
+        scale = max(1080/w_img, 1152/h_img)
+        img_clip = img_clip.with_effects([vfx.Resize(scale)])
+        
+        # Center Crop
+        img_clip = img_clip.cropped(x1=(img_clip.w - 1080)//2, y1=(img_clip.h - 1152)//2, width=1080, height=1152)
+        
+        # Apply Ken Burns effect (Subtle Zoom)
+        img_clip = img_clip.with_effects([vfx.Resize(lambda t: 1.0 + 0.05 * (t/total_duration))])
+        img_clip = img_clip.cropped(x1=(img_clip.w - 1080)//2, y1=(img_clip.h - 1152)//2, width=1080, height=1152)
+        
+        img_clip = img_clip.with_position((0, 0))
+        clips_to_composite.append(img_clip)
     else:
-        logger.warning("No video path found for Top Screen.")
+        logger.warning("No video or poster path found for Top Screen.")
         clips_to_composite.append(ColorClip(size=(1080, 1152), color=(0,0,0), duration=total_duration).with_position((0,0)))
 
     # --- Bottom Screen (40%, 1080x768) ---
@@ -1869,11 +1879,11 @@ async def run_one_cycle():
             # Get Video Content (Trailer)
             video_path = get_video_content({}, title, int(audio_duration) if audio_duration else 58, tmdb_id=movie_id, trailer_url=trailer_url)
             
-            # Assemble Reel (New Logic)
-            output_video_path = f"{OUTPUT_DIR}/final_reel.mp4"
-            if not create_reel(video_path, audio_path, words, output_video_path, movie_title_en=title, poster_path=poster_path):
-                logger.error("Reel generation failed.")
-                return
+        # Assemble Reel (New Logic)
+        output_video_path = f"{OUTPUT_DIR}/final_reel.mp4"
+        if not create_reel(video_path, audio_path, words, output_video_path, movie_title_en=title, poster_path=poster_path):
+            logger.error("Reel generation failed.")
+            sys.exit(1) # Critical failure at render stage
             
             # 5. Metadata
             final_caption = f"{caption}\n\n#سينما_أونلاين #ترشيحات_أفلام\n{WEBSITE_TEXT}"
@@ -1897,6 +1907,7 @@ async def run_one_cycle():
         logger.error(traceback.format_exc())
         send_telegram_alert(f"❌ <b>CinemaBot Critical Error</b>\n\n<code>{str(e)}</code>")
         send_error_email("Bot Cycle Crashed", str(e))
+        sys.exit(1) # Ensure GitHub Actions shows failure on crash
     finally:
         # Final cleanup
         if audio_path and os.path.exists(audio_path):

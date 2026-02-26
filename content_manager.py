@@ -75,19 +75,34 @@ from supabase import create_client, Client
 SITE_SUPABASE_URL = "https://lhpuwupbhpcqkwqugkhh.supabase.co"
 SITE_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxocHV3dXBiaHBjcWt3cXVna2hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MDkyODgsImV4cCI6MjA4NjQ4NTI4OH0.QCYzJaWo0mmFQwZjwaNjIJR1jR4wOb4CbqTKxTAaO2w"
 
+import sys
+
 def scrape_cinma_online():
     """Fetches latest content directly from cinma.online's Supabase backend."""
     logger.info("Fetching latest content from Supabase backend...")
     
+    # --- Load posted_ids to filter ---
+    posted_ids = []
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, 'r') as f:
+                state = json.load(f)
+                posted_ids = [str(pid) for pid in state.get("posted_ids", [])]
+        except: pass
+
     catalog = []
     try:
         client: Client = create_client(SITE_SUPABASE_URL, SITE_SUPABASE_KEY)
         
         # Fetch latest movies
-        movies_res = client.table('movies').select('id, title, arabic_title, trailer_url').order('created_at', desc=True).limit(20).execute()
+        movies_res = client.table('movies').select('id, title, arabic_title, trailer_url').order('created_at', desc=True).limit(50).execute()
         for movie in movies_res.data:
+            m_id = str(movie['id'])
+            if m_id in posted_ids:
+                continue
             title = movie.get('title') or movie.get('arabic_title') or f"Movie {movie['id']}"
             catalog.append({
+                'id': m_id,
                 'title': title,
                 'type': 'Movie',
                 'watch_url': f"{BASE_URL}/watch/movie/{movie['id']}",
@@ -96,10 +111,14 @@ def scrape_cinma_online():
             })
             
         # Fetch latest series
-        series_res = client.table('series').select('id, title').order('created_at', desc=True).limit(10).execute()
+        series_res = client.table('series').select('id, title').order('created_at', desc=True).limit(30).execute()
         for series in series_res.data:
+            s_id = str(series['id'])
+            if s_id in posted_ids:
+                continue
             title = series.get('title') or f"Series {series['id']}"
             catalog.append({
+                'id': s_id,
                 'title': title,
                 'type': 'Series',
                 'watch_url': f"{BASE_URL}/watch/series/{series['id']}",
@@ -107,7 +126,11 @@ def scrape_cinma_online():
                 'trailer_url': None
             })
             
-        logger.info(f"Retrieved {len(catalog)} items from Supabase.")
+        if not catalog and posted_ids:
+            logger.warning("All fetched content from Supabase has already been posted. Waiting for new content...")
+            sys.exit(0)
+
+        logger.info(f"Retrieved {len(catalog)} new items from Supabase (filtered).")
         return catalog
     except Exception as e:
         logger.error(f"Supabase extraction failed: {e}")

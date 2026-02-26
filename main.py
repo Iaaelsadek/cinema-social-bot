@@ -17,11 +17,26 @@ def check_scheduling():
     """Checks if it's time to post based on randomized interval."""
     if not os.path.exists(STATE_FILE):
         logger.info("No bot_state.json found. Proceeding with first run...")
+        # Initialize with default values if it doesn't exist
+        state = {
+            "last_post_timestamp": 0,
+            "next_interval_seconds": 0,
+            "posted_ids": [],
+            "movie_count": 0
+        }
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f, indent=4)
         return
     
     try:
         with open(STATE_FILE, 'r') as f:
             state = json.load(f)
+        
+        # Ensure posted_ids exists
+        if "posted_ids" not in state:
+            state["posted_ids"] = []
+            with open(STATE_FILE, 'w') as f:
+                json.dump(state, f, indent=4)
         
         last_post = state.get("last_post_timestamp", 0)
         next_interval = state.get("next_interval_seconds", 0)
@@ -38,15 +53,32 @@ def check_scheduling():
     except Exception as e:
         logger.warning(f"Error checking schedule: {e}. Proceeding anyway...")
 
-def update_scheduling():
-    """Updates bot_state.json with new random interval after successful post."""
+def update_scheduling(content_id=None):
+    """Updates bot_state.json with new random interval and marks content as posted."""
     try:
         new_interval = random.randint(5 * 3600, 7 * 3600) # 5-7 hours
-        state = {
+        
+        # Read current state to preserve posted_ids and movie_count
+        state = {"posted_ids": [], "movie_count": 0}
+        if os.path.exists(STATE_FILE):
+            try:
+                with open(STATE_FILE, 'r') as f:
+                    state = json.load(f)
+            except: pass
+
+        state.update({
             "last_post_timestamp": time.time(),
             "next_interval_seconds": new_interval,
             "last_post_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
+        })
+
+        if content_id:
+            if "posted_ids" not in state:
+                state["posted_ids"] = []
+            if str(content_id) not in state["posted_ids"]:
+                state["posted_ids"].append(str(content_id))
+                logger.info(f"Marked ID {content_id} as posted.")
+
         with open(STATE_FILE, 'w') as f:
             json.dump(state, f, indent=4)
         logger.info(f"✅ Schedule updated: Next post in {int(new_interval/3600)} hours.")
@@ -1536,7 +1568,7 @@ def reply_to_comments(page_id, access_token):
     except Exception as e:
         logger.error(f"Comment Reply Error: {e}")
 
-def upload_to_facebook(video_path, thumb_path, caption, comment_text, page_id, access_token):
+def upload_to_facebook(video_path, thumb_path, caption, comment_text, page_id, access_token, content_id=None):
     """
     Uploads a video to Facebook Reels using the Graph API with Polling.
     """
@@ -1582,8 +1614,8 @@ def upload_to_facebook(video_path, thumb_path, caption, comment_text, page_id, a
             
         logger.info(f"Reel Published! ID: {video_id}. Polling for status...")
         
-        # --- Update Scheduling after Success ---
-        update_scheduling()
+        # --- Update Scheduling and Posted ID after Success ---
+        update_scheduling(content_id=content_id)
         
         # 4. Polling for Readiness
         for _ in range(10): # Max 5 minutes
@@ -1622,10 +1654,12 @@ async def run_one_cycle():
         # 1. Content - New Catalog-driven Selection
         selected_content = await select_best_content()
         if not selected_content:
-            logger.error("No content selected from catalog. Exiting.")
-            return
+            logger.error("No new content selected from catalog. Exiting.")
+            sys.exit(0)
 
         title = selected_content['Title']
+        # Use our own DB ID as movie_id for tracking, but keep tmdb_id for metadata
+        content_db_id = selected_content.get('id', selected_content['tmdb_id'])
         movie_id = selected_content['tmdb_id']
         poster_url = selected_content['Poster_URL']
         trailer_url = selected_content['Trailer_URL']
@@ -1681,7 +1715,7 @@ async def run_one_cycle():
             if SIMULATION_MODE:
                 logger.info(f"[SIMULATION] Video: {output_video_path}, Thumb: {final_thumb}")
             else:
-                upload_to_facebook(output_video_path, final_thumb, final_caption, final_comment, FB_PAGE_ID, FB_PAGE_TOKEN)
+                upload_to_facebook(output_video_path, final_thumb, final_caption, final_comment, FB_PAGE_ID, FB_PAGE_TOKEN, content_id=content_db_id)
         
         # 6. Reply to Comments (Skipped in Simulation as requested, but logic is there)
         if not SIMULATION_MODE:

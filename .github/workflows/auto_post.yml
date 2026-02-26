@@ -31,6 +31,12 @@ jobs:
           sudo sed -i 's/rights="none" pattern="PDF"/rights="read,write" pattern="PDF"/g' /etc/ImageMagick-6/policy.xml
           sudo sed -i 's/rights="none" pattern="LABEL"/rights="read,write" pattern="LABEL"/g' /etc/ImageMagick-6/policy.xml
 
+      - name: Install Node.js
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nodejs npm
+          node --version
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:

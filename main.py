@@ -778,7 +778,6 @@ def fallback_download_youtube(youtube_url, output_path):
 
     # Public Invidious Instances (Ordered by reliability for GitHub Runners)
     instances = [
-        f"https://vid.puffyan.us/api/v1/videos/{video_id}",
         f"https://inv.vern.cc/api/v1/videos/{video_id}",
         f"https://invidious.nerdvpn.de/api/v1/videos/{video_id}"
     ]
@@ -937,6 +936,12 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
                         break
             except Exception as yt_err:
                 logger.warning(f"Primary YT-DLP download failed: {yt_err}")
+                
+                # Check for YouTube format block
+                if "Requested format is not available" in str(yt_err) or "No video formats found" in str(yt_err):
+                    logger.error("YouTube format blocked, switching to poster generation.")
+                    return None # Fallback to poster in create_reel
+
                 if "youtube.com" in current_video_url or "youtu.be" in current_video_url:
                     logger.info("Attempting Invidious API Fallback...")
                     # Fallback Method: Invidious

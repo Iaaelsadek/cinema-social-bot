@@ -71,9 +71,12 @@ def get_tmdb_data(title, content_type):
 
 from supabase import create_client, Client
 
-# Site configuration from JS extraction
-SITE_SUPABASE_URL = "https://lhpuwupbhpcqkwqugkhh.supabase.co"
-SITE_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxocHV3dXBiaHBjcWt3cXVna2hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MDkyODgsImV4cCI6MjA4NjQ4NTI4OH0.QCYzJaWo0mmFQwZjwaNjIJR1jR4wOb4CbqTKxTAaO2w"
+from dotenv import load_dotenv
+load_dotenv()
+
+# Site configuration from Environment Variables
+SITE_SUPABASE_URL = os.getenv("SUPABASE_URL")
+SITE_SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 import sys
 

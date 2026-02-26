@@ -87,14 +87,15 @@ def update_scheduling(content_id=None):
 
 import platform
 # MONKEY PATCH: Fix broken WMI on user system (CRITICAL)
-platform.machine = lambda: "AMD64"
-platform.processor = lambda: "AMD64"
-platform.system = lambda: "Windows"
-platform.release = lambda: "10"
-platform.version = lambda: "10.0.19041"
-platform.win32_ver = lambda *args, **kwargs: ('10', '10.0.19041', 'SP0', 'Multiprocessor Free')
-platform.platform = lambda: "Windows-10-10.0.19041-SP0"
-platform.node = lambda: "DESKTOP-USER"
+if platform.system() == 'Windows':
+    platform.machine = lambda: "AMD64"
+    platform.processor = lambda: "AMD64"
+    platform.system = lambda: "Windows"
+    platform.release = lambda: "10"
+    platform.version = lambda: "10.0.19041"
+    platform.win32_ver = lambda *args, **kwargs: ('10', '10.0.19041', 'SP0', 'Multiprocessor Free')
+    platform.platform = lambda: "Windows-10-10.0.19041-SP0"
+    platform.node = lambda: "DESKTOP-USER"
 
 import requests
 import asyncio
@@ -268,6 +269,22 @@ GENRE_MAP = {
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
 
+def send_telegram_alert(message):
+    """Sends a notification message to Telegram."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        logger.warning("Telegram credentials missing. Skipping alert.")
+        return
+    
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
+    try:
+        requests.post(url, json=payload, timeout=10)
+        logger.info("Telegram alert sent.")
+    except Exception as e:
+        logger.error(f"Failed to send Telegram alert: {e}")
+
 def send_error_email(subject, message):
     """Sends an email alert when a critical error occurs."""
     logger.info(f"Sending error email: {subject}")
@@ -384,6 +401,8 @@ def get_watch_url_from_supabase(movie_title: str) -> str:
     send_error_email("Supabase Watch URL Failed", f"Could not fetch watch URL for '{movie_title}'.\nReason: {error_msg}\n\nThe bot has been stopped.")
     sys.exit(1)
 
+import contextlib
+
 def clean_temp_files():
     """Cleans all temporary and output files to prevent caching issues."""
     logger.info("Cleaning temporary files...")
@@ -393,7 +412,7 @@ def clean_temp_files():
         if os.path.exists(directory):
             for filename in os.listdir(directory):
                 file_path = os.path.join(directory, filename)
-                try:
+                with contextlib.suppress(FileNotFoundError, PermissionError):
                     if os.path.isfile(file_path) or os.path.islink(file_path):
                         # Retry logic for locked files
                         for _ in range(3):
@@ -404,22 +423,20 @@ def clean_temp_files():
                                 time.sleep(1)
                     elif os.path.isdir(file_path):
                         shutil.rmtree(file_path)
-                except Exception as e:
-                    logger.error(f'Failed to delete {file_path}. Reason: {e}')
         else:
             os.makedirs(directory)
 
     # 2. Clean root directory temp files (MoviePy leftovers)
-    try:
-        root_files = glob.glob("*TEMP_MPY_wvf_snd.mp3")
-        for f in root_files:
-            try:
-                os.remove(f)
-                logger.info(f"Removed root temp file: {f}")
-            except Exception as e:
-                logger.warning(f"Could not remove root temp file {f}: {e}")
-    except Exception as e:
-        logger.warning(f"Root cleanup failed: {e}")
+    root_patterns = ["*TEMP_MPY_wvf_snd.mp3", "*.mp3", "*.mp4"]
+    for pattern in root_patterns:
+        try:
+            root_files = glob.glob(pattern)
+            for f in root_files:
+                with contextlib.suppress(FileNotFoundError, PermissionError):
+                    os.remove(f)
+                    logger.info(f"Removed root temp file: {f}")
+        except Exception as e:
+            logger.warning(f"Root cleanup failed for pattern {pattern}: {e}")
 
     logger.info("Temp and Output directories cleaned.")
 
@@ -1427,7 +1444,7 @@ def create_reel(video_path, audio_path, words, output_path, movie_title_en="", p
         if not isinstance(output_path, str):
             output_path = str(output_path)
             
-        final.write_videofile(output_path, fps=30, codec='libx264', audio_codec='aac')
+        final.write_videofile(output_path, fps=30, codec='libx264', audio_codec='aac', threads=4)
     
    # Cleanup
     final.close()
@@ -1715,7 +1732,11 @@ async def run_one_cycle():
             if SIMULATION_MODE:
                 logger.info(f"[SIMULATION] Video: {output_video_path}, Thumb: {final_thumb}")
             else:
-                upload_to_facebook(output_video_path, final_thumb, final_caption, final_comment, FB_PAGE_ID, FB_PAGE_TOKEN, content_id=content_db_id)
+                success = upload_to_facebook(output_video_path, final_thumb, final_caption, final_comment, FB_PAGE_ID, FB_PAGE_TOKEN, content_id=content_db_id)
+                if success:
+                    send_telegram_alert(f"✅ <b>Reel Published!</b>\n\n🎬 <b>Title:</b> {title}\n🆔 <b>DB ID:</b> {content_db_id}\n\n🔗 <a href='{watch_url}'>Watch on Cinma.online</a>")
+                else:
+                    send_telegram_alert(f"⚠️ <b>Upload Failed!</b>\n\n🎬 <b>Title:</b> {title}\nCheck logs for FB API error details.")
         
         # 6. Reply to Comments (Skipped in Simulation as requested, but logic is there)
         if not SIMULATION_MODE:
@@ -1724,6 +1745,7 @@ async def run_one_cycle():
     except Exception as e:
         logger.error(f"Critical Error: {e}")
         logger.error(traceback.format_exc())
+        send_telegram_alert(f"❌ <b>CinemaBot Critical Error</b>\n\n<code>{str(e)}</code>")
         send_error_email("Bot Cycle Crashed", str(e))
     finally:
         # Final cleanup

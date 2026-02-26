@@ -705,7 +705,7 @@ async def generate_audio(text, output_file, media_type="movie"):
                 alibaba_text = text_cleaned.replace("||PAUSE||", " ، ")
                 
                 # Use websocket_timeout parameter in call() for stability
-                audio_data = synthesizer.call(alibaba_text) # Removed websocket_timeout due to SDK incompatibility
+                audio_data = synthesizer.call(alibaba_text, websocket_timeout=30)
                 
                 if audio_data:
                     with open(output_file, 'wb') as f:

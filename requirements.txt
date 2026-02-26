@@ -1,7 +1,6 @@
 google-genai
 requests
 edge-tts>=6.1.9
-dashscope>=1.25.0
 yt-dlp>=2024.12.23
 moviepy>=2.1.1
 openai-whisper

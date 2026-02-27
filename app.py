@@ -103,7 +103,7 @@ css = """
 .gradio-container { font-family: 'Tajawal', sans-serif; }
 """ 
 
-with gr.Blocks(title="Cinema God-Mode", css=css, theme=gr.themes.Dark()) as demo: 
+with gr.Blocks(title="Cinema God-Mode", css=css, theme=gr.themes.Monochrome()) as demo: 
     gr.Markdown("<h1 style='text-align: center; color: #ff5555;'>☢️ محطة فضاء Cinema Social Bot (GOD-MODE) ☢️</h1>") 
      
     with gr.Row(): 
@@ -144,7 +144,7 @@ with gr.Blocks(title="Cinema God-Mode", css=css, theme=gr.themes.Dark()) as demo
                         wa_cb = gr.Checkbox(label="WhatsApp") 
  
             gr.Markdown("### 🖥️ شاشة المراقبة النووية (Live Terminal)") 
-            log_output = gr.Textbox(label="", lines=18, max_lines=25, interactive=False, elem_id="log_box", show_copy_button=True) 
+            log_output = gr.Textbox(label="", lines=18, max_lines=25, interactive=False, elem_id="log_box") 
              
             with gr.Row(): 
                 kill_btn = gr.Button("🛑 تدمير العملية (Kill)", variant="stop") 

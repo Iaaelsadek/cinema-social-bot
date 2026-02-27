@@ -17,5 +17,5 @@ supabase
 beautifulsoup4
 lxml
 playwright
-gradio
+gradio==5.15.0
 psutil

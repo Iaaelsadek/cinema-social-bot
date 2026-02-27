@@ -1,7 +1,21 @@
-import gradio as gr 
 import os 
 import subprocess 
 import sys 
+
+# --- FORCE STABLE GRADIO --- 
+# Hugging Face forcefully installs Gradio 5.x which has a fatal schema bug. 
+# We intercept the startup to forcefully downgrade to the stable 4.44.1 
+try: 
+    import gradio as gr 
+    if gr.__version__.startswith("5."): 
+        print(f"⚠️ Detected unstable Gradio v{gr.__version__}. Forcing downgrade to 4.44.1...") 
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "gradio==4.44.1"]) 
+        print("✅ Downgrade complete. Restarting app...") 
+        os.execv(sys.executable, ['python'] + sys.argv) 
+except ImportError: 
+    pass 
+
+import gradio as gr 
 import asyncio 
 import edge_tts 
 

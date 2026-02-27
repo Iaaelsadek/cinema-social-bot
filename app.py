@@ -43,7 +43,7 @@ def stream_logs(env_vars):
     logs = "" 
     for line in iter(process.stdout.readline, ''): 
         logs += line 
-        yield logs, gr.update() 
+        yield logs, gr.update(), gr.update(), gr.update() 
     process.wait() 
 
 def master_launch(mode, m_title, m_trailer, m_overview, tg, fb, insta, yt, tk, wa, voice_key, speed, quality, ai_temp, ai_style): 
@@ -56,7 +56,17 @@ def master_launch(mode, m_title, m_trailer, m_overview, tg, fb, insta, yt, tk, w
         "POST_TELEGRAM": str(tg), "POST_FACEBOOK": str(fb), "POST_INSTAGRAM": str(insta), 
         "POST_YOUTUBE": str(yt), "POST_TIKTOK": str(tk), "POST_WHATSAPP": str(wa) 
     }) 
-    yield from stream_logs(env) 
+    
+    # Run production and yield logs + placeholders for video/files
+    for logs, mon, vid, files in stream_logs(env):
+        yield logs, mon, vid, files
+    
+    # After completion, try to find the generated video and assets
+    final_video = "final_video.mp4" # Placeholder name, adjust based on main.py logic
+    if os.path.exists(final_video):
+        yield gr.update(), gr.update(), final_video, [final_video] # Yielding assets list
+    else:
+        yield gr.update(), gr.update(), None, None
 
 # --- VISUAL THEME (CYBERPUNK) --- 
 custom_css = """ 
@@ -100,6 +110,10 @@ with gr.Blocks(title="Cinema Emperor V6", css=custom_css, theme=gr.themes.Monoch
             
             log_out = gr.Textbox(label="Cyber Terminal Logs", lines=15, elem_id="log_box") 
             
+            gr.Markdown("### 🎬 Studio Preview") 
+            vid_prev = gr.Video(label="Final Output") 
+            file_out = gr.File(label="Generated Assets") 
+            
         with gr.Column(scale=1): 
             with gr.Accordion("⚙️ Advanced AI & Video", open=True): 
                 quality = gr.Dropdown(["720p", "1080p", "4K"], label="Quality", value="1080p") 
@@ -110,7 +124,7 @@ with gr.Blocks(title="Cinema Emperor V6", css=custom_css, theme=gr.themes.Monoch
     start_btn.click( 
         fn=master_launch, 
         inputs=[mode_rd, m_title, m_trailer, m_overview, tg_cb, fb_cb, insta_cb, yt_cb, tk_cb, wa_cb, voice_dd, speed_sl, quality, ai_temp, ai_style], 
-        outputs=[log_out, sys_mon] 
+        outputs=[log_out, sys_mon, vid_prev, file_out] 
     ) 
 
 if __name__ == "__main__": 

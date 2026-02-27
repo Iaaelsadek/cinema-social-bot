@@ -3,6 +3,7 @@ import sys
 import time
 import json
 import random
+from social_dispatcher import post_to_all_platforms
 
 # Ensure directories exist immediately
 OUTPUT_DIR = "output"
@@ -1827,6 +1828,9 @@ async def run_one_cycle():
             success = upload_to_facebook(output_video_path, final_thumb, final_caption, final_comment, FB_PAGE_ID, FB_PAGE_TOKEN, content_id=content_db_id)
             if success:
                 send_telegram_alert(f"✅ <b>Reel Published!</b>\n\n🎬 <b>Title:</b> {title}\n🆔 <b>DB ID:</b> {content_db_id}\n\n🔗 <a href='{watch_url}'>Watch on Cinma.online</a>")
+                
+                # Omni-Channel Dispatch (Nuclear Upgrade)
+                post_to_all_platforms(output_video_path, final_caption)
             else:
                 send_telegram_alert(f"⚠️ <b>Upload Failed!</b>\n\n🎬 <b>Title:</b> {title}\nCheck logs for FB API error details.")
         

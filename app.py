@@ -4,223 +4,119 @@ import subprocess
 import sys 
 import asyncio 
 import edge_tts 
+import psutil # For system monitoring 
 
-# --- SYSTEM GLOBALS --- 
+# --- CONFIGURATION & VOICES --- 
+ARABIC_VOICES = { 
+    "شاكر (مصر)": "ar-EG-ShakirNeural", "سلمى (مصر)": "ar-EG-SalmaNeural", 
+    "حامد (السعودية)": "ar-SA-HamedNeural", "زارينا (السعودية)": "ar-SA-ZariyahNeural", 
+    "حمدان (الإمارات)": "ar-AE-HamdanNeural", "فاطمة (الإمارات)": "ar-AE-FatimaNeural", 
+    "باسم (سوريا)": "ar-SY-BasselNeural", "بشرى (اليمن)": "ar-YE-MaryamNeural" 
+} 
+
 LOG_FILE = "system_logs.txt" 
 current_process = None 
 
-# All Arabic Voices in Edge-TTS 
-ARABIC_VOICES = [ 
-    "ar-EG-ShakirNeural", "ar-EG-SalmaNeural", 
-    "ar-SA-HamedNeural", "ar-SA-ZariyahNeural", 
-    "ar-AE-HamdanNeural", "ar-AE-FatimaNeural", 
-    "ar-QA-AmalNeural", "ar-QA-MoazNeural", 
-    "ar-KW-AliNeural", "ar-KW-ReemNeural", 
-    "ar-SY-BasselNeural", "ar-SY-AmanyNeural",
-    "ar-DZ-AminaNeural", "ar-DZ-IsmaelNeural",
-    "ar-BH-AliNeural", "ar-BH-LailaNeural",
-    "ar-IQ-BasselNeural", "ar-IQ-RanaNeural",
-    "ar-JO-SanaNeural", "ar-JO-TaimNeural",
-    "ar-LB-LaylaNeural", "ar-LB-RamiNeural",
-    "ar-LY-ImanNeural", "ar-LY-OmarNeural",
-    "ar-MA-MounaNeural", "ar-MA-JamalNeural",
-    "ar-OM-AbdullahNeural", "ar-OM-AyshaNeural",
-    "ar-PS-HaniNeural", "ar-PS-RayaNeural",
-    "ar-TN-HediNeural", "ar-TN-ReemNeural",
-    "ar-YE-MaryamNeural", "ar-YE-SalehNeural"
-] 
+def get_sys_info(): 
+    """Real-time system resource monitor.""" 
+    cpu = psutil.cpu_percent() 
+    ram = psutil.virtual_memory().percent 
+    return f"🖥️ CPU: {cpu}% | 🧠 RAM: {ram}%" 
 
-# --- ASYNC VOICE PREVIEW GENERATOR --- 
-async def generate_sample(voice): 
-    text = "أهلاً بك يا سيدي في غرفة التحكم المركزية. أنا جاهز للعمل على إنتاج فيديوهاتك بأعلى جودة ممكنة." 
-    output_file = f"sample_{voice}.mp3" 
-    communicate = edge_tts.Communicate(text, voice) 
-    await communicate.save(output_file) 
-    return output_file 
+async def generate_sample(voice_key): 
+    voice = ARABIC_VOICES[voice_key] 
+    text = "جاري فحص جودة الصوت في مختبرات سينما بوت. النظام جاهز للإنتاج الآن." 
+    path = f"sample_{voice}.mp3" 
+    await edge_tts.Communicate(text, voice).save(path) 
+    return path 
 
-def preview_voice(voice): 
-    if not voice: return None 
-    try: 
-        # Run async synchronously safely using a more standard approach for Gradio
-        # Using asyncio.run() directly is cleaner if not already in a loop
-        import asyncio
-        sample_path = asyncio.run(generate_sample(voice))
-        return str(sample_path) # Force string return to avoid schema issues
-    except Exception as e: 
-        print(f"Error generating preview: {e}")
-        return None 
-
-# --- PROCESS MANAGEMENT --- 
-def cancel_process(): 
-    global current_process 
-    if current_process is not None and current_process.poll() is None: 
-        current_process.terminate() 
-        return "🛑 تم إرسال أمر الإيقاف. المكنة تتوقف الآن!" 
-    return "ℹ️ لا توجد عملية قيد التشغيل حالياً." 
-
-def clear_logs(): 
-    if os.path.exists(LOG_FILE): open(LOG_FILE, 'w', encoding='utf-8').close() 
-    return "", gr.update(value=None) 
+def preview_voice(voice_key): 
+    return asyncio.run(generate_sample(voice_key)) 
 
 def stream_logs(env_vars): 
     global current_process 
-    # Install playwright browser if not exists
     os.system("playwright install chromium") 
-    env_vars.update({"TQDM_DISABLE": "1", "PYTHONUNBUFFERED": "1"}) 
-    
-    with open(LOG_FILE, "w", encoding="utf-8") as f: 
-        f.write("🚀 جاري تهيئة نظام الإمبراطور V5.0...\n" + "="*50 + "\n") 
-        
+    env_vars.update({"PYTHONUNBUFFERED": "1", "GRADIO_ANALYTICS_ENABLED": "False"}) 
+    with open(LOG_FILE, "w", encoding="utf-8") as f: f.write("🚀 Starting Cinema Bot V6.0...\n") 
     process = subprocess.Popen([sys.executable, "main.py"], env=env_vars, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1) 
     current_process = process 
-    
-    logs = "🚀 الإقلاع بدأ...\n" 
-    yield logs, gr.update(), gr.update(), gr.update() 
-    
+    logs = "" 
     for line in iter(process.stdout.readline, ''): 
         logs += line 
-        with open(LOG_FILE, "a", encoding="utf-8") as f: f.write(line) 
-        yield logs, gr.update(), gr.update(), gr.update() 
-        
-    process.stdout.close() 
-    return_code = process.wait() 
-    
-    logs += "\n" + "="*50 + "\n" 
-    if return_code == 0: 
-        logs += "✅ تمت العملية بنجاح ساحق!\n" 
-        video_path = "output/final_reel.mp4" if os.path.exists("output/final_reel.mp4") else None 
-        files = []
-        if os.path.exists("temp"):
-            files = [os.path.join("temp", f) for f in os.listdir("temp") if f.endswith((".txt", ".mp3"))]
-        if video_path: files.append(video_path) 
-        yield logs, gr.update(value=LOG_FILE), gr.update(value=video_path), gr.update(value=files if files else None) 
-    else: 
-        logs += f"❌ توقف بسبب خطأ (Code {return_code}).\n" 
-        yield logs, gr.update(value=LOG_FILE), gr.update(), gr.update() 
+        yield logs, gr.update() 
+    process.wait() 
 
-def master_launcher(mode, m_title, m_trailer, m_overview, tg, fb, insta, yt, tk, wa, voice, speed, quality, temp): 
+def master_launch(mode, m_title, m_trailer, m_overview, tg, fb, insta, yt, tk, wa, voice_key, speed, quality, ai_temp, ai_style): 
     env = os.environ.copy() 
     env.update({ 
-        "FORCE_POST": "true", 
-        "MANUAL_MODE": "true" if mode == "Manual" else "false", 
-        "MANUAL_TITLE": m_title, 
-        "MANUAL_TRAILER": m_trailer, 
-        "MANUAL_OVERVIEW": m_overview, 
-        "VOICE_MODEL": voice, 
-        "VOICE_SPEED": str(speed), 
-        "VIDEO_QUALITY": quality, 
-        "SUB_COLOR": "#FFFF00", 
-        "AI_TEMP": str(temp), 
-        "POST_TELEGRAM": str(tg), 
-        "POST_FACEBOOK": str(fb), 
-        "POST_INSTAGRAM": str(insta), 
-        "POST_YOUTUBE": str(yt), 
-        "POST_TIKTOK": str(tk), 
-        "POST_WHATSAPP": str(wa) 
+        "FORCE_POST": "true", "MANUAL_MODE": "true" if mode == "Manual" else "false", 
+        "MANUAL_TITLE": m_title, "MANUAL_TRAILER": m_trailer, "MANUAL_OVERVIEW": m_overview, 
+        "VOICE_MODEL": ARABIC_VOICES[voice_key], "VOICE_SPEED": str(speed), 
+        "VIDEO_QUALITY": quality, "AI_TEMP": str(ai_temp), "SCRIPT_STYLE": ai_style, 
+        "POST_TELEGRAM": str(tg), "POST_FACEBOOK": str(fb), "POST_INSTAGRAM": str(insta), 
+        "POST_YOUTUBE": str(yt), "POST_TIKTOK": str(tk), "POST_WHATSAPP": str(wa) 
     }) 
     yield from stream_logs(env) 
 
-# --- MIND-BLOWING CSS --- 
-css = """ 
-body { background-color: #0b0f19; color: #ffffff; } 
-.gradio-container { font-family: 'Tajawal', sans-serif; max-width: 100% !important; } 
-#log_box textarea { 
-    background-color: #050505 !important; 
-    color: #00ffcc !important; 
-    font-family: 'Courier New', monospace; 
-    font-size: 14px; 
-    border: 2px solid #00ffcc; 
-    box-shadow: 0 0 10px #00ffcc33;
-} 
-.sidebar { border-left: 1px solid #333; padding-left: 15px; } 
-h1 { 
-    text-align: center; 
-    color: #ff3366; 
-    text-shadow: 0 0 20px #ff336688; 
-    margin-bottom: 30px; 
-    font-size: 2.5em;
-} 
-.launch-btn { 
-    background: linear-gradient(90deg, #ff3366, #ff9933) !important; 
-    border: none !important; 
-    color: white !important; 
-    font-size: 20px !important; 
-    font-weight: bold !important; 
-    box-shadow: 0 0 15px #ff336688 !important;
-    padding: 15px !important;
-}
+# --- VISUAL THEME (CYBERPUNK) --- 
+custom_css = """ 
+body { background-color: #050505; color: #00ffcc; } 
+.gradio-container { border: 2px solid #00ffcc !important; box-shadow: 0 0 20px #00ffcc44 !important; border-radius: 15px !important; } 
+#log_box textarea { background: #000 !important; color: #0f0 !important; font-family: 'Courier New', monospace; border: 1px solid #0f0; } 
+.stat-box { background: #111; border-radius: 10px; padding: 10px; border-left: 5px solid #ff3366; } 
+h1 { text-shadow: 0 0 10px #ff3366; color: #ff3366 !important; } 
 """ 
 
-# --- THE UI ARCHITECTURE --- 
-with gr.Blocks(title="Cinema Emperor Dashboard", css=css, theme=gr.themes.Monochrome()) as demo: 
-    gr.Markdown("<h1>👑 غرفة عمليات Cinema Social Bot (إصدار الإمبراطور V5.0) 👑</h1>") 
+with gr.Blocks(title="Cinema Emperor V6", css=custom_css, theme=gr.themes.Monochrome()) as demo: 
+    gr.HTML("<div style='text-align:center;'><h1>☢️ CINEMA BOT COMMAND CENTER V6.0 ☢️</h1></div>") 
     
     with gr.Row(): 
-        # LEFT COLUMN: THE ENGINE & LOGS (Scale 3) 
-        with gr.Column(scale=3): 
+        with gr.Column(scale=1): 
+            sys_mon = gr.Label(value=get_sys_info(), label="System Status", elem_classes="stat-box") 
+            with gr.Accordion("🌍 Social Dispatch (Auto-Post)", open=True): 
+                tg_cb = gr.Checkbox(label="Telegram", value=True) 
+                fb_cb = gr.Checkbox(label="Facebook Reels", value=False) 
+                insta_cb = gr.Checkbox(label="Instagram Reels", value=False) 
+                yt_cb = gr.Checkbox(label="YouTube Shorts", value=False) 
+                tk_cb = gr.Checkbox(label="TikTok", value=False) 
+                wa_cb = gr.Checkbox(label="WhatsApp", value=False) 
+            
+            with gr.Accordion("🎙️ Voice & Audio Laboratory", open=True): 
+                voice_dd = gr.Dropdown(list(ARABIC_VOICES.keys()), label="Select Narrator", value="شاكر (مصر)") 
+                audio_prev = gr.Audio(label="Live Preview", interactive=False) 
+                voice_dd.change(preview_voice, voice_dd, audio_prev) 
+                speed_sl = gr.Slider(-50, 50, -10, step=5, label="Voice Speed (%)") 
+        
+        with gr.Column(scale=2): 
             with gr.Tabs(): 
-                with gr.TabItem("🤖 وضع الإنتاج (Production Mode)"): 
-                    mode_radio = gr.Radio(["Auto", "Manual"], label="اختر أسلوب عمل البوت", value="Auto", info="الآلي يسحب من قاعدة البيانات، اليدوي يسمح لك بتحديد الفيلم.") 
+                with gr.TabItem("🚀 Production"): 
+                    mode_rd = gr.Radio(["Auto", "Manual"], label="Mode", value="Auto") 
+                    with gr.Accordion("🎯 Manual Override Data", open=True): 
+                        m_title = gr.Textbox(label="Movie Title") 
+                        m_trailer = gr.Textbox(label="Trailer URL") 
+                        m_overview = gr.Textbox(label="Overview", lines=3) 
                     
-                    with gr.Accordion("🎯 إعدادات الإنتاج اليدوي (Manual Settings)", open=True) as manual_accordion: 
-                        with gr.Row(): 
-                            m_title = gr.Textbox(label="اسم الفيلم / المسلسل", placeholder="مثال: Interstellar") 
-                            m_trailer = gr.Textbox(label="رابط إعلان يوتيوب (اختياري)") 
-                        m_overview = gr.Textbox(label="ملخص القصة (اختياري)", lines=2) 
-                    
-                    start_btn = gr.Button("🚀 إطـــلاق الـمـكـنـــة الآن 🚀", elem_classes="launch-btn", size="lg") 
-
-            gr.Markdown("### 🖥️ شاشة المراقبة المركزية (Live Cyber-Terminal)") 
-            log_output = gr.Textbox(label="", lines=18, max_lines=25, interactive=False, elem_id="log_box") 
+                    start_btn = gr.Button("🔥 INITIALIZE PRODUCTION 🔥", variant="primary") 
             
-            with gr.Row(): 
-                kill_btn = gr.Button("� تدمير العملية (Kill)", variant="stop") 
-                clear_btn = gr.Button("🧹 تنظيف الشاشة") 
-                download_log_btn = gr.DownloadButton("📥 تحميل السجل") 
-                
-            gr.Markdown("### 🎬 المخرجات (Studio Outputs)") 
-            with gr.Row(): 
-                video_preview = gr.Video(label="معاينة الفيديو النهائي", interactive=False) 
-                assets_files = gr.File(label="📂 الملفات الخام (صوت ونص)", interactive=False) 
-
-        # RIGHT COLUMN: THE STICKY SIDEBAR (Scale 1) 
-        with gr.Column(scale=1, elem_classes="sidebar"): 
-            gr.Markdown("## 🎛️ لوحة الإعدادات الشاملة") 
+            log_out = gr.Textbox(label="Cyber Terminal Logs", lines=15, elem_id="log_box") 
             
-            with gr.Accordion("🎙️ استوديو الصوتيات (Edge-TTS)", open=True): 
-                voice_dd = gr.Dropdown(ARABIC_VOICES, label="اختر المعلق الصوتي", value="ar-EG-ShakirNeural") 
-                audio_preview = gr.Audio(label="🎧 عينة صوتية للمعلق", interactive=False) 
-                # Auto-generate voice sample when dropdown changes 
-                voice_dd.change(fn=preview_voice, inputs=voice_dd, outputs=audio_preview) 
-                speed_slider = gr.Slider(-50, 50, value=-10, step=5, label="سرعة النطق (%)") 
-                
-            with gr.Accordion("🌍 منصات النشر (Social Dispatcher)", open=True): 
-                tg_cb = gr.Checkbox(label="✈️ Telegram", value=True) 
-                fb_cb = gr.Checkbox(label="📘 Facebook Reels") 
-                insta_cb = gr.Checkbox(label="📸 Instagram Reels") 
-                yt_cb = gr.Checkbox(label="🟥 YouTube Shorts") 
-                tk_cb = gr.Checkbox(label="🎵 TikTok") 
-                wa_cb = gr.Checkbox(label="💬 WhatsApp") 
-                
-            with gr.Accordion("🎨 المونتاج والرؤية (Video Engine)", open=False): 
-                quality_dd = gr.Dropdown(["720p", "1080p", "4K (بطيء)"], label="جودة الرندر", value="1080p") 
-                
-            with gr.Accordion("� عقل الذكاء الاصطناعي (AI Settings)", open=False): 
-                temp_slider = gr.Slider(0.0, 1.0, value=0.7, step=0.1, label="درجة الإبداع (Temperature)", info="0 يعني دقيق وصارم، 1 يعني خيالي ومبدع.") 
+        with gr.Column(scale=1): 
+            with gr.Accordion("⚙️ Advanced AI & Video", open=True): 
+                quality = gr.Dropdown(["720p", "1080p", "4K"], label="Quality", value="1080p") 
+                ai_temp = gr.Slider(0, 1, 0.7, label="AI Imagination (Temp)") 
+                ai_style = gr.Dropdown(["Dramatic", "Action", "Horror", "Documentary"], label="Script Tone", value="Dramatic") 
 
-    # Wiring up the launch button to pass all 14 arguments 
+    # --- WIRING --- 
     start_btn.click( 
-        fn=master_launcher, 
-        inputs=[mode_radio, m_title, m_trailer, m_overview, tg_cb, fb_cb, insta_cb, yt_cb, tk_cb, wa_cb, voice_dd, speed_slider, quality_dd, temp_slider], 
-        outputs=[log_output, download_log_btn, video_preview, assets_files]
+        fn=master_launch, 
+        inputs=[mode_rd, m_title, m_trailer, m_overview, tg_cb, fb_cb, insta_cb, yt_cb, tk_cb, wa_cb, voice_dd, speed_sl, quality, ai_temp, ai_style], 
+        outputs=[log_out, sys_mon] 
     ) 
-    kill_btn.click(cancel_process, outputs=[log_output]) 
-    clear_btn.click(clear_logs, outputs=[log_output, download_log_btn]) 
 
 if __name__ == "__main__": 
     demo.launch( 
         server_name="0.0.0.0", 
         server_port=7860, 
-        show_api=False,  # CRITICAL: This stops the schema generator from crashing 
-        ssr=False        # Disable Server Side Rendering to be safe 
-    )
+        show_api=False, 
+        ssr=False 
+    ) 

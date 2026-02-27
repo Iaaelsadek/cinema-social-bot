@@ -60,47 +60,53 @@ UA_IPAD = (
 )
 
 UA_IPHONE = (
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) "
     "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-    "Version/17.0 Mobile/15E148 Safari/604.1"
+    "Version/17.4.1 Mobile/15E148 Safari/604.1"
 )
+
+# الإعدادات المشتركة لجميع المحاولات (IPv4 + Extractor Args)
+COMMON_OPTS = [
+    "--source-address", "0.0.0.0",       # CRITICAL: Forces IPv4 to bypass GitHub Actions DNS errors
+    "--no-check-certificate",            # Bypass certificate validation
+    "--extractor-args", "youtube:player_client=ios,android,web;player_skip=webpage,configs,js",
+]
 
 METHODS = [
     # 1. Cookies + iPad UA (أفضل فرصة للنجاح)
     {
         "name": "cookies+iPad-UA",
-        "args": ["--cookies", "cookies.txt", "--user-agent", UA_IPAD, "-f", "bestvideo+bestaudio/best"],
+        "args": COMMON_OPTS + ["--cookies", "cookies.txt", "--user-agent", UA_IPHONE, "-f", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best"],
         "requires_cookies": True,
     },
     # 2. Cookies Only
     {
         "name": "cookies-only",
-        "args": ["--cookies", "cookies.txt", "-f", "bestvideo+bestaudio/best"],
+        "args": COMMON_OPTS + ["--cookies", "cookies.txt", "-f", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best"],
         "requires_cookies": True,
     },
-    # 3. iPad Safari iOS17 (بدون كوكيز كاحتياط)
-    {
-        "name": "iPad-Safari-iOS17",
-        "args": ["--user-agent", UA_IPAD, "-f", "bestvideo+bestaudio/best"],
-    },
-    # 4. iPhone Safari iOS17
+    # 3. iPhone Safari iOS17 (بدون كوكيز كاحتياط)
     {
         "name": "iPhone-Safari-iOS17",
-        "args": ["--user-agent", UA_IPHONE, "-f", "bestvideo+bestaudio/best"],
+        "args": COMMON_OPTS + ["--user-agent", UA_IPHONE, "-f", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best"],
+    },
+    # 4. iPad Safari iOS17
+    {
+        "name": "iPad-Safari-iOS17",
+        "args": COMMON_OPTS + ["--user-agent", UA_IPAD, "-f", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best"],
     },
     # 5. iPad + iOS client
     {
         "name": "iPad-UA+iOS-client",
-        "args": [
+        "args": COMMON_OPTS + [
             "--user-agent", UA_IPAD,
-            "--extractor-args", "youtube:player_client=ios",
-            "-f", "bestvideo+bestaudio/best",
+            "-f", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         ],
     },
     # 6. iPad + watch url
     {
         "name": "iPad-Safari-watch-url",
-        "args": ["--user-agent", UA_IPAD, "-f", "bestvideo+bestaudio/best"],
+        "args": COMMON_OPTS + ["--user-agent", UA_IPAD, "-f", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best"],
         "use_watch_url": True,
     },
 ]

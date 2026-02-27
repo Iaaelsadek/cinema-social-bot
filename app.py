@@ -162,12 +162,11 @@ with gr.Blocks(title="Cinema Emperor Dashboard", css=css, theme=gr.themes.Monoch
                 with gr.TabItem("🤖 وضع الإنتاج (Production Mode)"): 
                     mode_radio = gr.Radio(["Auto", "Manual"], label="اختر أسلوب عمل البوت", value="Auto", info="الآلي يسحب من قاعدة البيانات، اليدوي يسمح لك بتحديد الفيلم.") 
                     
-                    with gr.Group(visible=True) as manual_group: 
-                        gr.Markdown("### 🎯 إعدادات الإنتاج اليدوي") 
+                    with gr.Accordion("🎯 إعدادات الإنتاج اليدوي (Manual Settings)", open=True) as manual_accordion: 
                         with gr.Row(): 
                             m_title = gr.Textbox(label="اسم الفيلم / المسلسل", placeholder="مثال: Interstellar") 
-                            m_trailer = gr.Textbox(label="رابط إعلان يوتيوب", placeholder="لتحسين السكربت (اختياري)") 
-                        m_overview = gr.Textbox(label="ملخص القصة", lines=2, placeholder="ضع ملخصاً أو اتركه لجيميناي (اختياري)") 
+                            m_trailer = gr.Textbox(label="رابط إعلان يوتيوب (اختياري)") 
+                        m_overview = gr.Textbox(label="ملخص القصة (اختياري)", lines=2) 
                     
                     start_btn = gr.Button("🚀 إطـــلاق الـمـكـنـــة الآن 🚀", elem_classes="launch-btn", size="lg") 
 
@@ -209,18 +208,11 @@ with gr.Blocks(title="Cinema Emperor Dashboard", css=css, theme=gr.themes.Monoch
             with gr.Accordion("� عقل الذكاء الاصطناعي (AI Settings)", open=False): 
                 temp_slider = gr.Slider(0.0, 1.0, value=0.7, step=0.1, label="درجة الإبداع (Temperature)", info="0 يعني دقيق وصارم، 1 يعني خيالي ومبدع.") 
 
-    # Wiring up the events
-    def toggle_manual(choice): 
-        return gr.update(visible=(choice == "Manual")) 
-    
-    mode_radio.change(fn=toggle_manual, inputs=[mode_radio], outputs=[manual_group], api_name=False) 
-
     # Wiring up the launch button to pass all 14 arguments 
     start_btn.click( 
         fn=master_launcher, 
         inputs=[mode_radio, m_title, m_trailer, m_overview, tg_cb, fb_cb, insta_cb, yt_cb, tk_cb, wa_cb, voice_dd, speed_slider, quality_dd, temp_slider], 
-        outputs=[log_output, download_log_btn, video_preview, assets_files],
-        api_name=False
+        outputs=[log_output, download_log_btn, video_preview, assets_files]
     ) 
     kill_btn.click(cancel_process, outputs=[log_output]) 
     clear_btn.click(clear_logs, outputs=[log_output, download_log_btn]) 

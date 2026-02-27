@@ -13,82 +13,6 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 # --- Dynamic Random Scheduling ---
 STATE_FILE = "bot_state.json"
 
-def check_scheduling():
-    """Checks if it's time to post based on randomized interval."""
-    if os.environ.get("FORCE_POST") == "true":
-        logger.info("🚀 FORCE_POST detected! Bypassing schedule...")
-        return
-
-    if not os.path.exists(STATE_FILE):
-        logger.info("No bot_state.json found. Proceeding with first run...")
-        # Initialize with default values if it doesn't exist
-        state = {
-            "last_post_timestamp": 0,
-            "next_interval_seconds": 0,
-            "posted_ids": [],
-            "movie_count": 0
-        }
-        with open(STATE_FILE, 'w') as f:
-            json.dump(state, f, indent=4)
-        return
-    
-    try:
-        with open(STATE_FILE, 'r') as f:
-            state = json.load(f)
-        
-        # Ensure posted_ids exists
-        if "posted_ids" not in state:
-            state["posted_ids"] = []
-            with open(STATE_FILE, 'w') as f:
-                json.dump(state, f, indent=4)
-        
-        last_post = state.get("last_post_timestamp", 0)
-        next_interval = state.get("next_interval_seconds", 0)
-        
-        current_time = time.time()
-        elapsed = current_time - last_post
-        
-        if elapsed < next_interval:
-            remaining_mins = int((next_interval - elapsed) / 60)
-            logger.info(f"⏳ الانتظار للجدول العشوائي... النشر القادم بعد {remaining_mins} دقيقة.")
-            sys.exit(0)
-        else:
-            logger.info(f"Schedule reached! Elapsed: {int(elapsed/3600)}h. Interval was: {int(next_interval/3600)}h.")
-    except Exception as e:
-        logger.warning(f"Error checking schedule: {e}. Proceeding anyway...")
-
-def update_scheduling(content_id=None):
-    """Updates bot_state.json with new random interval and marks content as posted."""
-    try:
-        new_interval = random.randint(5 * 3600, 7 * 3600) # 5-7 hours
-        
-        # Read current state to preserve posted_ids and movie_count
-        state = {"posted_ids": [], "movie_count": 0}
-        if os.path.exists(STATE_FILE):
-            try:
-                with open(STATE_FILE, 'r') as f:
-                    state = json.load(f)
-            except: pass
-
-        state.update({
-            "last_post_timestamp": time.time(),
-            "next_interval_seconds": new_interval,
-            "last_post_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
-
-        if content_id:
-            if "posted_ids" not in state:
-                state["posted_ids"] = []
-            if str(content_id) not in state["posted_ids"]:
-                state["posted_ids"].append(str(content_id))
-                logger.info(f"Marked ID {content_id} as posted.")
-
-        with open(STATE_FILE, 'w') as f:
-            json.dump(state, f, indent=4)
-        logger.info(f"✅ Schedule updated: Next post in {int(new_interval/3600)} hours.")
-    except Exception as e:
-        logger.error(f"Failed to update schedule: {e}")
-
 import platform
 # MONKEY PATCH: Fix broken WMI on user system (CRITICAL)
 if platform.system() == 'Windows':
@@ -185,6 +109,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from supabase import create_client, Client
 from google import genai
+from google.genai import types
 
 # MoviePy Imports
 from moviepy import (
@@ -196,6 +121,8 @@ import moviepy.video.fx as vfx
 from moviepy.audio.AudioClip import CompositeAudioClip
 import moviepy.audio.fx as afx
 import imageio_ffmpeg
+import whisper
+import torch
 
 # Whisper (Lazy Import)
 whisper = None
@@ -223,6 +150,7 @@ load_dotenv()
 # logger = logging.getLogger(__name__)
 
 # --- Constants & Settings ---
+BOT_VERSION = "2.0"
 TMDB_API_KEY = os.environ.get("TMDB_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
@@ -597,75 +525,143 @@ def get_thumbnail(tmdb_id, title):
         
     return thumb_path if os.path.exists(thumb_path) else None, overview
 
-def generate_script(title, overview, media_type="movie", genre_ar="الدراما", max_duration=None):
+def generate_script(title, overview, media_type="movie", genre_ar="الدراما", trailer_text="", max_duration=None):
     """
-    Generates the script using Gemini with Zero Hallucination and Dynamic Genre Inference.
+    Generates the script using Gemini with Hierarchical logic (Primary: Plot, Secondary: Trailer).
     """
     logger.info(f"Generating script for {media_type} '{title}' ({genre_ar})...")
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY not found.")
         
     media_type_ar = "فيلم" if media_type == "movie" else "مسلسل"
-    genre_text = f"{genre_ar} " if genre_ar else ""
     
     if DEBUG_SHORT_VIDEO:
-        return f"قصتنا انهاردة عن {media_type_ar} {genre_text}{title} [PAUSE] لمشاهدة ال{media_type_ar} كامل وبدون اعلانات ستجد الرابط في اول تعليق", "Test Caption"
+        return f"قصتنا انهاردة عن {media_type_ar} {genre_ar} {title} [PAUSE] لمشاهدة ال{media_type_ar} كامل وبدون اعلانات ستجد الرابط في اول تعليق", "Test Caption"
     
-    # Zero Hallucination Prompt
+    # Updated Boss Prompt (Story Body ONLY)
     prompt = f"""
-    Act as a master storyteller. Create a script for a 60-second video about the {media_type} "{title}".
+    أنت صانع محتوى سينمائي عبقري. سأقوم أنا بكتابة المقدمة والخاتمة للفيديو. المطلوب منك **فقط** كتابة 'جسم القصة' لفيلم بعنوان '{title}'. 
+    مصادر المعلومات (بالترتيب): 
+    1. الملخص: {overview}. 
+    2. تفريغ إعلان الفيلم: {trailer_text}. 
     
-    **CRITICAL RULES (ZERO HALLUCINATION):**
-    1. USE ONLY the provided plot details. DO NOT invent characters, subplots, or endings.
-    2. If details are sparse, focus on the ATMOSPHERE and THEMES (e.g., suspense, betrayal, hope).
-    3. INFER DYNAMIC GENRES: Based on the overview, categorize this into high-retention genres like "Sci-Fi", "Success Story", "Karma", or "Mystery" if applicable.
+    قواعد صارمة جداً: 
+    - اللغة والأسلوب: يجب استخدام اللغة العربية الفصحى "الجزلة" والمشكلة تماماً. ممنوع منعاً باتاً استخدام أي كلمات عامية.
+    - النطق السليم (اللام الشمسية والقمرية): بالنسبة للكلمات التي تبدأ بـ (ال)، إذا كانت اللام شمسية (مثل الشَّمس) يجب تشكيل الحرف الذي بعدها بالشدة بوضوح. وإذا كانت قمرية (مثل الْقمر) يجب وضع السكون على اللام أو حذف اللام كتابةً إذا كان ذلك يحسن النطق (مثلاً: اْلَقمر).
+    - الوضوح الصوتي: يجب وضع فتحة واضحة على كلمة (الْمُقَدَّم)، ووضع فتحة على حرف النون في نهاية أي كلمة (مثل: أَنْ، كَانَ، عَنْ، لَكِنَّ، ...) لضمان نطق النون بوضوح تام وعدم أكلها.
+    - قاعدة العين: ممنوع منعاً باتاً وضع تنوين الضم على حرف العين (عٌ)، يترك حرف العين بدون تنوين أو بضمة واحدة فقط.
+    - انسيابية السرد والفواصل: اكتب السرد كقصة واحدة متصلة، مع وضع [PAUSE] بين الأحداث الكبيرة، و [PAUSE_SHORT] للفواصل البسيطة داخل الجمل الطويلة.
+    - الطول: يجب أن يكون السرد طويلاً ومفصلاً (بين 230 إلى 250 كلمة). 
+    - النبرة: أسلوب درامي مثير (أسلوب حكواتي فصيح). 
+    - المحتوى: احكِ قصة الفيلم بأهم تفاصيلها بدون حرق النهاية. ممنوع الاعتذار، ممنوع قول 'لا أعرف'، ممنوع ذكر أي ملاحظات. 
+    - اكتب السرد مباشرة دون أي مقدمات أو خواتيم.
     
-    **Script Structure:**
-    - Intro (Strict): Start EXACTLY with: "قِصِّتْنَا اِنَّهَارْدَة عَنْ {media_type_ar} {genre_text}[Arabic Title]..."
-    - Body: 130-150 words. Modern Standard Arabic with FULL Diacritics (Tashkeel).
-    - Outro (Strict): End EXACTLY with: "لمشاهدت ال{media_type_ar} كامِلُ وبدون اعلانات , ستجد الرابِت في اول تعليِق , مٌشاهدَة ممتعة"
-    
-    **Language Rules:**
-    - NO English letters. Transliterate phonetically (e.g., "Matrix" -> "مَاتْرِكْس").
-    - Full diacritics on ALL names and foreign terms.
-    
-    **Caption:** Modern Standard Arabic (Fus'ha), high-suspense, includes #سينما_أونلاين.
-    
-    **Context:** {overview}
-    
-    Output JSON: {{"script_body": "...", "caption": "..."}}
+    Output JSON Format: {{"script_body": "...", "caption": "..."}}
     """
     
     client = genai.Client(api_key=GEMINI_API_KEY)
-    models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite-preview-06-17']
+    
+    # Strictly use high reasoning models as requested
+    models = ['gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-1.5-pro', 'gemini-pro-latest']
     
     for model_name in models:
         try:
-            # Use the correct google-genai client structure
+            # Step 1: Generate Initial Script
             response = client.models.generate_content(
                 model=model_name, 
                 contents=prompt, 
-                config={'response_mime_type': 'application/json'}
+                config=types.GenerateContentConfig(
+                    response_mime_type='application/json',
+                )
             )
             data = json.loads(response.text.strip())
-            return data["script_body"].strip().replace('*', ''), data["caption"].strip()
+            initial_script = data["script_body"].strip().replace('*', '')
+            caption = data["caption"].strip()
+            
+            logger.info(f"Script generated successfully by {model_name}")
+            return initial_script, caption
+            
         except Exception as e:
             logger.warning(f"{model_name} failed: {e}")
             
     # HARD STOP: If all Gemini models fail, ABORT the process.
-    error_msg = "❌ **فشل جودة:** نماذج Gemini (2.5, 2.5-lite) لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
+    error_msg = "❌ **فشل جودة:** نماذج Gemini (Pro, Flash) لا تستجيب. تم إلغاء الفيديو لمنع نشر محتوى بدون سكريبت."
     logger.critical(error_msg)
     send_telegram_alert(error_msg)
     sys.exit(1) # Fail job in GitHub Actions
 
 
+# -----------------------------------------------------------------------------
+# Constants & Templates
+# -----------------------------------------------------------------------------
+INTRO_TEMPLATE = "قِصَّتُنَا الْيَوْم عَنْ {content_type} {genres} ، {title}."
+OUTRO_TEXT = "لِمُشَاهَدَتِ الْفِيلْمِ كَامِلًا وَبِدُونِ إِعْلَانات [PAUSE_SHORT] سَتَجِدُ الرَّابِطَ فِي أَوَّلِ تَعْلِيقٍ [PAUSE] ، مُشَاهَدَةٌ مُمْتِعَةٌ."
+
+def convert_numbers_to_text(text):
+    """Replaces common numbers with Arabic text for better TTS pronunciation."""
+    # Simple dictionary for common numbers and years
+    number_map = {
+        "1967": "أَلْفٍ وَتُسْعُمِائَةٍ وَسَبْعَةٍ وَسِتُّون",
+        "1973": "أَلْفٍ وَتُسْعُمِائَةٍ وَثَلَاثَةٍ وَسَبْعُون",
+        "2023": "أَلْفَيْنِ وَثَلَاثَةٍ وَعِشْرُون",
+        "2024": "أَلْفَيْنِ وَأَرْبَعَةٍ وَعِشْرُون",
+        "2025": "أَلْفَيْنِ وَخَمْسَةٍ وَعِشْرُون",
+        "2026": "أَلْفَيْنِ وَسِتَّةٍ وَعِشْرُون",
+        "1": "وَاحِد", "2": "اِثْنَان", "3": "ثَلَاثَة", "4": "أَرْبَعَة", "5": "خَمْسَة",
+        "6": "سِتَّة", "7": "سَبْعَة", "8": "ثَمَانِيَة", "9": "تِسْعَة", "10": "عَشَرَة"
+    }
+    
+    # Sort keys by length descending to replace "10" before "1"
+    for num_str in sorted(number_map.keys(), key=len, reverse=True):
+        # Use word boundaries to avoid replacing parts of words/numbers
+        pattern = r'\b' + num_str + r'\b'
+        text = re.sub(pattern, number_map[num_str], text)
+    
+    return text
+
 def clean_text_for_tts(text):
-    """Cleans text for Edge-TTS."""
-    # Phonetic Fixes
+    """Cleans text for Edge-TTS with phonetic and pronunciation logic."""
+    # 1. Convert numbers to text first
+    text = convert_numbers_to_text(text)
+    
+    # 2. General Pronunciation Logic (Noun/Action clarity)
+    # Fix for "المقدم" and "أكشن" and final Noon
+    text = text.replace("المقدم", "الْمُقَدَّم").replace("أصل", "أَصْل")
+    text = text.replace("أكشن", "أَكْشَن").replace("الأكشن", "الأَكْشَن")
+    
+    # User Request: Specific diacritics for "إعلانات" (Iclanat)
+    # 1. Hamza with Kasra (إِ)
+    # 2. Fatha on the Alif before Taa (نَات)
+    text = text.replace("إعلانات", "إِعْلَانات")
+    
+    # User Request: Remove diacritic from "عٌ" (Ain with Tanwin Damma)
+    # We replace it with just Ain or Ain with single Damma if preferred, 
+    # but based on "مُزَارِعٌ" request, we'll remove it entirely.
+    text = text.replace("عٌ", "ع")
+    
+    # Add Fattha to any Noon at the end of a word (General Logic)
+    # Matches a Noon (ن) at the end of a word, not followed by any diacritic
+    text = re.sub(r'ن(\s|[\.\!\?،؛]|$)', r'نَ\1', text)
+    
+    # 3. Lam Logic (Solar/Lunar)
+    # Lunar: Ensure Sukun on Lam (e.g., الْقمر)
+    lunar_letters = "أبجحخعغفقكموهي"
+    for char in lunar_letters:
+        text = text.replace(f"ال{char}", f"الْ{char}")
+    
+    # Solar: Ensure Shadda on the next letter (e.g., الشَّمس)
+    solar_letters = "تثدذر_سشصضطظلن"
+    for char in solar_letters:
+        # Note: We use a generic shadda if not already present
+        if f"ال{char}" in text and f"ال{char}ّ" not in text:
+            text = text.replace(f"ال{char}", f"ال{char}ّ")
+
+    # 4. Specific Movie/Genre fixes
+    text = text.replace("الممر", "الْمَمَرّ").replace("النمر", "النِّمر")
     text = text.replace("مستوى", "مُسْتَوَى").replace("مستوي", "مُسْتَوَى")
     text = text.replace("اخرى", "أُخْرَى").replace("أخرى", "أُخْرَى")
     
-    # Remove markdown/special chars
+    # 5. Clean up
     text = text.replace('*', '').replace('#', '').replace('-', '')
     text = text.replace('"', '').replace("'", "")
     text = re.sub(r'[^\w\s\u0600-\u06FF\.\,\!\?\،\؛]', '', text)
@@ -675,23 +671,34 @@ def create_silence(duration=0.3):
     """Creates a silent audio clip (reduced to 0.3s to save time)."""
     return AudioArrayClip(np.zeros((int(44100 * duration), 2)), fps=44100)
 
-async def generate_audio(text, output_file, media_type="movie"):
-    """Generates audio using Microsoft Edge-TTS (ar-SA-HamedNeural)."""
-    logger.info("Generating audio (Microsoft Edge-TTS - Hamed)...")
-    text_cleaned = re.sub(r'\[.*?\]', '', text.replace("[PAUSE]", "||PAUSE||"))
+async def generate_audio(text, output_file, media_type="movie", rate="-20%"):
+    """Generates audio using Microsoft Edge-TTS (ar-EG-HamdanNeural). Default rate is 0.8 speed (-20%)."""
+    logger.info(f"Generating audio (Microsoft Edge-TTS - Hamdan) with rate: {rate}...")
     
-    parts = text_cleaned.split("||PAUSE||")
+    # Handle PAUSE markers with custom durations
+    text_cleaned = text.replace("[PAUSE]", "||PAUSE||").replace("[PAUSE_SHORT]", "||PAUSE_SHORT||")
+    
+    # Split by any pause marker
+    parts_raw = re.split(r'(\|\|PAUSE\|\||\|\|PAUSE_SHORT\|\|)', text_cleaned)
     
     audio_clips = []
     temp_files = []
-    current_voice = "ar-SA-HamedNeural" # Saudi Hamed voice (v1.0 stable style)
+    current_voice = "ar-EG-ShakirNeural"
     
     try:
         segment_counter = 0
-        for part in parts:
+        for part in parts_raw:
+            if part == "||PAUSE||":
+                audio_clips.append(create_silence(0.4))
+                continue
+            if part == "||PAUSE_SHORT||":
+                audio_clips.append(create_silence(0.1))
+                continue
+                
             clean_seg = clean_text_for_tts(part)
             if not clean_seg: continue
             
+            logger.info(f"Generating segment {segment_counter+1} with text: {clean_seg[:50]}...")
             segment_counter += 1
             temp_filename = f"{TEMP_DIR}/seg_{segment_counter}_{int(datetime.now().timestamp())}.mp3"
             
@@ -699,7 +706,13 @@ async def generate_audio(text, output_file, media_type="movie"):
             success = False
             for _ in range(3):
                 try:
-                    communicate = edge_tts.Communicate(clean_seg, current_voice)
+                    # Apply rate for the story segments (anything longer than 10 chars is likely story/outro)
+                    current_rate = rate if len(clean_seg) > 10 else "+0%"
+                    
+                    # Log the rate being used for visibility
+                    logger.debug(f"Segment rate: {current_rate} for text: {clean_seg[:30]}...")
+                    
+                    communicate = edge_tts.Communicate(clean_seg, current_voice, rate=current_rate)
                     await communicate.save(temp_filename)
                     if os.path.exists(temp_filename) and os.path.getsize(temp_filename) >= 100:
                         success = True
@@ -715,13 +728,13 @@ async def generate_audio(text, output_file, media_type="movie"):
                     clip = AudioFileClip(temp_filename)
                     if clip.duration > 0:
                         audio_clips.append(clip)
-                        audio_clips.append(create_silence(0.3))
                 except Exception as e:
                     logger.warning(f"Audio load error: {e}")
 
         if not audio_clips:
-            logger.error("No audio generated.")
-            return 0
+            logger.error("❌ Failed to generate audio after multiple attempts.")
+            send_telegram_alert("❌ **خطأ حرج:** فشل توليد الصوت (Edge-TTS). تم إيقاف العملية.")
+            sys.exit(1) # Critical failure: Exit with code 1 as requested
 
         final_audio = concatenate_audioclips(audio_clips)
         final_audio.write_audiofile(output_file)
@@ -826,189 +839,172 @@ def fallback_download_youtube(youtube_url, output_path):
 
 def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None):
     """
-    Fetches official trailer via YT-DLP with capped retries and mobile spoofing.
+    Fetches official trailer via YT-DLP V1.0 logic.
     STRICT MODE: Exits if trailer fails.
     """
-    attempt = 0
-    # Fixed Backoff Configuration - 10s per user request
-    wait_time = 10
-    max_attempts = 3
-    
-    # Cache for search results to avoid re-searching
-    cached_search_results = []
-    
-    while attempt < max_attempts:
-        attempt += 1
-        logger.info(f"[Trailer] Attempt {attempt}/{max_attempts} for: {movie_title}")
-        
-        # Try fetching trailer from TMDB if tmdb_id is available and no trailer_url provided
-        # Only on first attempt if we don't have a trailer_url
-        if attempt == 1 and not trailer_url and tmdb_id and tmdb_id != 'N/A':
-            try:
-                url = f"https://api.themoviedb.org/3/movie/{tmdb_id}/videos?api_key={TMDB_API_KEY}"
-                res = requests.get(url).json()
-                videos = res.get('results', [])
-                for v in videos:
-                    if v.get('site') == 'YouTube' and v.get('type') == 'Trailer':
-                        trailer_url = f"https://www.youtube.com/watch?v={v.get('key')}"
-                        logger.info(f"Found TMDB trailer: {trailer_url}")
-                        break
-            except Exception as e:
-                logger.warning(f"TMDB trailer fetch failed: {e}")
-
-        # Determine strategy
-        current_video_url = None
-        use_search = False
-        
-        if trailer_url and attempt == 1:
-            current_video_url = trailer_url
-        else:
-            use_search = True
-        
-        # Sanitize unique_id to avoid directory creation or invalid chars
-        safe_tmdb_id = re.sub(r'[^a-zA-Z0-9]', '_', str(tmdb_id)) if tmdb_id else 'NO_ID'
-        safe_title = re.sub(r'[^a-zA-Z0-9]', '_', str(movie_title))
-        
-        unique_id = f"{safe_tmdb_id}_{int(time.time())}"
-        raw_filename = f"movie_raw_{unique_id}"
-        cut_filename = f"movie_clip_{unique_id}.mp4"
-        
-        ydl_opts = {
-            'cookiefile': os.path.abspath('cookies.txt'),
-            'format': 'bestvideo+bestaudio/best',
-            'outtmpl': f'{TEMP_DIR}/{raw_filename}.%(ext)s',
-            'quiet': True,
-            'nocheckcertificate': True,
-            'retries': 3,
-            'socket_timeout': 30,
-            'merge_output_format': 'mp4',
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['web'],
-                    'player_skip': ['webpage', 'js'],
-                }
-            },
-            'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}]
-        }
-        
+    # Try fetching trailer from TMDB if tmdb_id is available and no trailer_url provided
+    if not trailer_url and tmdb_id and tmdb_id != 'N/A':
         try:
-            if use_search:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    if not cached_search_results:
-                        # Search for 10 results to have enough for retries
-                        logger.info(f"Searching YouTube for trailer: {movie_title}")
-                        search_query = f"ytsearch10:{movie_title} Official Trailer"
-                        info = ydl.extract_info(search_query, download=False)
-                        cached_search_results = info.get('entries', [])
-                        
-                    if not cached_search_results:
-                         raise ValueError(f"No trailer found for {movie_title}")
-                    
-                    search_idx = attempt - 1
-                    if trailer_url:
-                        search_idx -= 1 # Offset because attempt 1 used trailer_url
-                        
-                    if search_idx < 0: search_idx = 0 # Safety
-                    
-                    if search_idx < len(cached_search_results):
-                        current_video_url = cached_search_results[search_idx]['webpage_url']
-                    else:
-                        # Fallback if we ran out of results
-                        current_video_url = cached_search_results[0]['webpage_url']
-                        
-            logger.info(f"Downloading video from: {current_video_url}")
-            
-            # Primary Method: YT-DLP
-            try:
-                # Use Rich Progress Bar
-                download_with_rich(ydl_opts, [current_video_url])
-                
-                # Robust file finding using glob
-                potential_files = glob.glob(os.path.join(TEMP_DIR, f"{raw_filename}*"))
-                if not potential_files:
-                     raise ValueError(f"Download failed for {movie_title} (No file found)")
-                
-                input_file = potential_files[0] # Take the first match
-                # Prefer .mp4 if multiple exist
-                for p in potential_files:
-                    if p.endswith(".mp4"):
-                        input_file = p
-                        break
-            except Exception as yt_err:
-                logger.warning(f"Primary YT-DLP download failed: {yt_err}")
-                
-                # Check for YouTube format block
-                if "Requested format is not available" in str(yt_err) or "No video formats found" in str(yt_err):
-                    logger.error("YouTube format blocked, switching to poster generation.")
-                    return None # Fallback to poster in create_reel
-
-                if "youtube.com" in current_video_url or "youtu.be" in current_video_url:
-                    logger.info("Attempting Invidious API Fallback...")
-                    # Fallback Method: Invidious
-                    raw_path = os.path.join(TEMP_DIR, f"{raw_filename}.mp4")
-                    input_file = fallback_download_youtube(current_video_url, raw_path)
-                    
-                    if not input_file:
-                        raise ValueError(f"Both YT-DLP and Invidious fallback failed for {movie_title}")
-                else:
-                    raise ValueError(f"Primary YT-DLP download failed for non-YouTube URL: {yt_err}")
-
-            if not input_file or not os.path.exists(input_file):
-                raise ValueError(f"Download failed for {movie_title}")
-
-            # Use FFmpeg directly to cut and fix metadata (No MoviePy)
-            cut_path = os.path.join(TEMP_DIR, cut_filename)
-            
-            logger.info(f"Cutting video with FFmpeg (Copy Mode): {input_file} -> {cut_path}")
-            
-            # Rich Spinner for FFmpeg
-            with console.status("[bold green]Cutting Trailer with FFmpeg...[/bold green]"):
-                # Use stream copy for speed and stability, remove audio, skip 10s
-                cmd = [
-                    "ffmpeg", "-y",
-                    "-ss", "10",
-                    "-i", input_file,
-                    "-t", str(duration),
-                    "-an",                # Remove audio completely
-                    "-c:v", "copy",       # Copy video stream without re-encoding
-                    cut_path
-                ]
-                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            
-            if not os.path.exists(cut_path):
-                 raise ValueError("FFmpeg failed to create output file")
-            
-            # Verify file size
-            file_size = os.path.getsize(cut_path)
-            logger.info(f"Cut file created. Size: {file_size} bytes")
-            if file_size < 1000:
-                raise ValueError(f"Cut file is too small ({file_size} bytes), likely corrupted.")
-            
-            return cut_path
-
+            url = f"https://api.themoviedb.org/3/movie/{tmdb_id}/videos?api_key={TMDB_API_KEY}"
+            res = requests.get(url).json()
+            videos = res.get('results', [])
+            for v in videos:
+                if v.get('site') == 'YouTube' and v.get('type') == 'Trailer':
+                    trailer_url = f"https://www.youtube.com/watch?v={v.get('key')}"
+                    logger.info(f"Found TMDB trailer: {trailer_url}")
+                    break
         except Exception as e:
-            logger.error(f"Trailer fetch error (Attempt {attempt}): {e}")
-            logger.error(f"Actual Trailer Error: {traceback.format_exc()}")
+            logger.warning(f"TMDB trailer fetch failed: {e}")
+
+    # Determine URL
+    current_video_url = trailer_url
+    if not current_video_url:
+        logger.info(f"Searching YouTube for trailer: {movie_title}")
+        search_query = f"ytsearch1:{movie_title} Official Trailer"
+        try:
+            with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True}) as ydl:
+                info = ydl.extract_info(search_query, download=False)
+                if info.get('entries'):
+                    # In extract_flat=True, it might be 'url' instead of 'webpage_url'
+                    entry = info['entries'][0]
+                    current_video_url = entry.get('webpage_url') or entry.get('url')
+                    if current_video_url and not current_video_url.startswith('http'):
+                         current_video_url = f"https://www.youtube.com/watch?v={current_video_url}"
+        except Exception as e:
+            logger.error(f"Search failed: {e}")
+
+    if not current_video_url:
+        logger.error(f"No trailer URL found for {movie_title}")
+        sys.exit(1)
+
+    # V1.0 Simple Options with fallback for cookies
+    unique_id = int(time.time())
+    raw_path = os.path.join(TEMP_DIR, f"movie_raw_{unique_id}.mp4")
+    cut_path = os.path.join(TEMP_DIR, f"movie_clip_{unique_id}.mp4")
+
+    browsers = ['chrome', 'edge', None]
+    downloaded = False
+
+    for browser in browsers:
+        try:
+            ydl_opts = {
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'outtmpl': raw_path,
+                'quiet': False,
+            }
+            if browser:
+                ydl_opts['cookiesfrombrowser'] = (browser,)
+                logger.info(f"Attempting download with {browser} cookies...")
+            else:
+                logger.info("Attempting download without cookies...")
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([current_video_url])
             
-        # If we reach here, the attempt failed
-        if attempt < max_attempts:
-            logger.info(f"Waiting {wait_time} seconds before next attempt...")
+            if os.path.exists(raw_path) and os.path.getsize(raw_path) > 1000:
+                downloaded = True
+                break
+        except Exception as e:
+            logger.warning(f"Download with {browser if browser else 'no'} cookies failed: {e}")
+            if os.path.exists(raw_path):
+                os.remove(raw_path)
+
+    if not downloaded:
+        logger.error(f"STRICT ABORT: All download attempts failed for {movie_title}")
+        send_telegram_alert(f"❌ **خطأ حرج:** فشل تحميل الإعلان لـ {movie_title} بعدة محاولات. تم إيقاف العملية.")
+        sys.exit(1)
+
+    try:
+        # Simple Cut with FFmpeg
+        logger.info(f"Cutting trailer: {raw_path} -> {cut_path}")
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", "10",
+            "-i", raw_path,
+            "-t", str(duration),
+            "-an",                # Remove audio
+            "-c:v", "copy",       # Copy video stream
+            cut_path
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+        
+        if os.path.exists(cut_path) and os.path.getsize(cut_path) > 1000:
+            return cut_path
+        else:
+            raise ValueError("FFmpeg output invalid")
+
+    except Exception as e:
+        logger.error(f"STRICT ABORT: Trailer download failed: {e}")
+        send_telegram_alert(f"❌ **خطأ حرج:** فشل تحميل الإعلان لـ {movie_title}. تم إيقاف العملية.")
+        sys.exit(1)
+
+
+def get_trailer_transcription(trailer_url, movie_title):
+    """Downloads trailer audio and transcribes it using Whisper."""
+    if not trailer_url:
+        logger.warning(f"No trailer URL provided for {movie_title}. Skipping transcription.")
+        return ""
+
+    logger.info(f"Downloading trailer audio for transcription: {trailer_url}")
+    audio_path = os.path.join(TEMP_DIR, f"trailer_trans_{int(time.time())}.mp3")
+    
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': audio_path.replace('.mp3', '.%(ext)s'),
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'quiet': True,
+        'no_warnings': True,
+    }
+
+    # Try with cookies from common browsers
+    for browser in ['chrome', 'edge', None]:
+        try:
+            if browser:
+                ydl_opts['cookiesfrombrowser'] = (browser,)
+            else:
+                if 'cookiesfrombrowser' in ydl_opts:
+                    del ydl_opts['cookiesfrombrowser']
             
-            # Rich Countdown Timer
-            with get_progress_manager() as progress:
-                 task = progress.add_task(f"[yellow]Retrying in {wait_time}s...", total=wait_time, filename="Countdown")
-                 for _ in range(wait_time):
-                     time.sleep(1)
-                     progress.update(task, advance=1)
-    
-    # All attempts failed - FALLBACK TO POSTER/IMAGE MODE
-    error_msg = f"⚠️ **تحذير:** فشل في تحميل إعلان فيلم/مسلسل {movie_title}. سيتم استخدام صورة الغلاف بدلاً من الإعلان."
-    logger.warning(error_msg)
-    
-    # 1. Send Telegram Alert
-    send_telegram_alert(f"🎬 {movie_title}: تم استخدام صورة الغلاف لعدم توفر الإعلان")
-    
-    return None # create_reel will handle None by using a background image/color
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([trailer_url])
+            
+            # The output path might have changed extension during download
+            actual_audio_path = audio_path
+            if not os.path.exists(actual_audio_path):
+                # Check for other extensions just in case
+                base = audio_path.rsplit('.', 1)[0]
+                for ext in ['mp3', 'm4a', 'webm', 'wav']:
+                    if os.path.exists(f"{base}.{ext}"):
+                        actual_audio_path = f"{base}.{ext}"
+                        break
+            
+            if os.path.exists(actual_audio_path) and os.path.getsize(actual_audio_path) > 1000:
+                logger.info(f"Trailer audio downloaded to {actual_audio_path}. Transcribing...")
+                
+                # Use Whisper to transcribe
+                whisper_lib = get_whisper()
+                model = whisper_lib.load_model("base") # Use "base" or "tiny" for speed
+                result = model.transcribe(actual_audio_path)
+                transcription = result.get("text", "").strip()
+                
+                # Clean up
+                try: os.remove(actual_audio_path)
+                except: pass
+                
+                logger.info(f"Transcription completed ({len(transcription)} chars)")
+                return transcription
+                
+        except Exception as e:
+            logger.warning(f"Trailer audio transcription failed with {browser} cookies: {e}")
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+                
+    return ""
+
 
 def get_video_content(item, title, duration, tmdb_id=None, trailer_url=None):
     """Orchestrates video fetching. STRICT MODE: Only Trailer."""
@@ -1093,7 +1089,7 @@ def get_yt_duration(url):
 
 def download_viral_chunk(duration=20):
     """
-    Slices viral content with Smart Slicing and robust error handling.
+    Slices viral content via YT-DLP V1.0 logic.
     """
     queue = load_viral_queue()
     
@@ -1101,201 +1097,92 @@ def download_viral_chunk(duration=20):
     if os.path.exists(VIRAL_LINKS_FILE):
         try:
             with open(VIRAL_LINKS_FILE, 'r', encoding='utf-8') as f:
-                all_urls = [line.strip() for line in f if line.strip().startswith("http")]
+                available_urls = [line.strip() for line in f if line.strip().startswith("http")]
         except Exception as e:
             logger.error(f"Failed to read viral_links.txt: {e}")
-            all_urls = []
+            available_urls = []
     else:
         logger.error(f"{VIRAL_LINKS_FILE} not found!")
-        all_urls = []
+        available_urls = []
 
-    # Filter out blacklisted URLs
-    available_urls = [u for u in all_urls if u not in queue.get("blacklist", [])]
-    
     if not available_urls:
-        raise RuntimeError("All viral URLs failed or are exhausted. Please add new links.")
+        raise RuntimeError("No viral URLs found in viral_links.txt.")
 
-    # 2. Iterate through URLs safely
+    # 2. Iterate through URLs
     for url in available_urls:
         logger.info(f"Processing viral URL: {url}")
         
         try:
-            # Get current progress
             used_seconds = queue["tracking"].get(url, 0)
-            
-            # Fetch total duration (Metadata only)
-            total_duration = get_yt_duration(url)
-            
-            # Condition A: Exhausted (ONLY blacklist if we know for sure it's exhausted)
-            if total_duration > 0 and (total_duration - used_seconds < duration):
-                logger.info(f"URL exhausted ({used_seconds}/{total_duration}s). Blacklisting.")
-                if url not in queue["blacklist"]:
-                    queue["blacklist"].append(url)
-                save_viral_queue(queue)
-                continue
-            
-            # Condition B: Valid - Attempt Download & Extraction with multi-strategy
-            video_id = url.split("v=")[-1].split("&")[0]
-            output_path = f"{TEMP_DIR}/viral_chunk_{video_id}_{int(used_seconds)}.mp4"
-            logger.info(f"Extracting clip: {used_seconds}s to {used_seconds + duration}s")
+            video_id = int(time.time())
+            raw_path = f"{TEMP_DIR}/viral_raw_{video_id}.mp4"
+            output_path = f"{TEMP_DIR}/viral_chunk_{video_id}.mp4"
 
-            strategies = [
-                ("Web-PO", {'youtube': {'player_client': ['web'], 'player_skip': ['webpage', 'js']}}),
-                ("Web", {'youtube': {'player_client': ['web']}}),
-                ("Default", {})
+            # V1.0 Simple Options with fallback for cookies
+            browsers = ['chrome', 'edge', None]
+            downloaded = False
+            
+            for browser in browsers:
+                try:
+                    ydl_opts = {
+                        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                        'outtmpl': raw_path,
+                        'quiet': False,
+                    }
+                    if browser:
+                        ydl_opts['cookiesfrombrowser'] = (browser,)
+                        logger.info(f"Attempting viral download with {browser} cookies...")
+                    else:
+                        logger.info("Attempting viral download without cookies...")
+
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        # Check duration first
+                        info = ydl.extract_info(url, download=False)
+                        total_duration = float(info.get('duration', 0))
+                        
+                        if total_duration - used_seconds < duration:
+                            logger.info(f"URL exhausted: {url}")
+                            break # Skip this URL
+
+                        # Download
+                        ydl.download([url])
+
+                    if os.path.exists(raw_path) and os.path.getsize(raw_path) > 1000:
+                        downloaded = True
+                        break
+                except Exception as e:
+                    logger.warning(f"Viral download with {browser if browser else 'no'} cookies failed: {e}")
+                    if os.path.exists(raw_path):
+                        os.remove(raw_path)
+
+            if not downloaded:
+                continue # Try next URL
+
+            # Cut
+            logger.info(f"Extracting clip: {used_seconds}s to {used_seconds + duration}s")
+            cut_cmd = [
+                "ffmpeg", "-y",
+                "-ss", str(used_seconds),
+                "-t", str(duration),
+                "-i", raw_path,
+                "-map", "0:v:0",
+                "-c:v", "copy",
+                "-an",
+                output_path
             ]
             
-            success = False
-            for name, extractor_args in strategies:
-                try:
-                    print(f"--- Strategy {name} Attempt for {url} Download ---")
-                    logger.info(f"--- Strategy {name} Attempt for {url} Download ---")
-                    ydl_opts = {
-                        'cookiefile': os.path.abspath('cookies.txt'),
-                        'format': 'bestvideo[ext=mp4][vcodec^=avc1]/best[ext=mp4]',
-                        'quiet': False,
-                        'no_warnings': False,
-                        'http_chunk_size': 1048576,
-                    }
-                    if extractor_args:
-                        ydl_opts['extractor_args'] = extractor_args
-                        
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        try:
-                            info = ydl.extract_info(url, download=False)
-                        except Exception as e:
-                            if ("youtube.com" in url or "youtu.be" in url) and name == strategies[-1][0]:
-                                logger.warning(f"YT-DLP exhausted all strategies for {url}. Attempting Invidious fallback...")
-                                fallback_path = fallback_download_youtube(url, output_path)
-                                if fallback_path:
-                                    success = True
-                                    break
-                            raise e
-
-                        if info.get('is_live'):
-                            print(f"--- URL is a livestream, skipping: {url} ---")
-                            logger.warning(f"URL is a livestream, skipping: {url}")
-                            break # Skip this URL entirely if it's a live stream
-                            
-                        stream_url = info.get('url')
-                        if not stream_url:
-                            formats = info.get('formats', [])
-                            valid_formats = [f for f in formats if f.get('ext') == 'mp4' and 'avc1' in f.get('vcodec', '') and f.get('url')]
-                            if not valid_formats:
-                                valid_formats = [f for f in formats if f.get('ext') == 'mp4' and f.get('url')]
-                            if valid_formats:
-                                stream_url = valid_formats[-1]['url']
-                                
-                        if not stream_url:
-                            print(f"--- No stream URL found in strategy {name} ---")
-                            logger.warning(f"No stream URL found in strategy {name}")
-                            if ("youtube.com" in url or "youtu.be" in url) and name == strategies[-1][0]:
-                                logger.info("Attempting Invidious fallback due to no stream URL...")
-                                fallback_path = fallback_download_youtube(url, output_path)
-                                if fallback_path:
-                                    success = True
-                                    break
-                            continue
-
-                        print(f"--- Strategy {name} Extraction Start ---")
-                        cut_cmd = [
-                            "ffmpeg", "-y",
-                            "-ss", str(used_seconds),
-                            "-t", str(duration),
-                            "-i", stream_url,
-                            "-map", "0:v:0",
-                            "-c:v", "copy",
-                            "-an",
-                            "-f", "mp4",
-                            "-movflags", "+faststart",
-                            output_path
-                        ]
-                        
-                        result = subprocess.run(cut_cmd, capture_output=True)
-                        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 5000:
-                            # Verify if file is corrupted using OpenCV (lighter than MoviePy)
-                            cap = cv2.VideoCapture(output_path)
-                            if cap.isOpened():
-                                ret, frame = cap.read()
-                                if ret:
-                                    logger.info(f"Extraction successful and verified with OpenCV: {output_path}")
-                                    queue["tracking"][url] = used_seconds + duration
-                                    save_viral_queue(queue)
-                                    cap.release()
-                                    return output_path
-                                else:
-                                    logger.warning(f"Extracted file is empty or corrupted: {output_path}")
-                            else:
-                                logger.warning(f"Could not open extracted file: {output_path}")
-                            
-                            cap.release()
-                            try: os.remove(output_path)
-                            except: pass
-                        else:
-                            err_msg = result.stderr.decode(errors='ignore') if result.stderr else "Unknown error"
-                            print(f"--- Strategy {name} FFmpeg failed: {err_msg} ---")
-                            logger.warning(f"Strategy {name} FFmpeg failed: {err_msg}")
-                            if ("youtube.com" in url or "youtu.be" in url) and name == strategies[-1][0]:
-                                logger.info("Attempting Invidious fallback due to FFmpeg failure...")
-                                # For viral chunks, we need to cut it. fallback_download_youtube downloads full video.
-                                # We can download full then cut.
-                                full_temp = f"{TEMP_DIR}/full_fallback_{video_id}.mp4"
-                                if fallback_download_youtube(url, full_temp):
-                                    cut_cmd[6] = full_temp # Use downloaded file instead of stream_url
-                                    result = subprocess.run(cut_cmd, capture_output=True)
-                                    if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 5000:
-                                        logger.info("Invidious fallback + FFmpeg cut successful.")
-                                        queue["tracking"][url] = used_seconds + duration
-                                        save_viral_queue(queue)
-                                        try: os.remove(full_temp)
-                                        except: pass
-                                        return output_path
-                                try: os.remove(full_temp)
-                                except: pass
-                            continue
-                            
-                except Exception as e:
-                    print(f"--- Strategy {name} Download Failed: {e} ---")
-                    logger.warning(f"Strategy {name} failed for {url}: {e}")
-                    if ("youtube.com" in url or "youtu.be" in url) and name == strategies[-1][0]:
-                        logger.info("Attempting Invidious fallback after all strategies failed...")
-                        full_temp = f"{TEMP_DIR}/full_fallback_{video_id}.mp4"
-                        if fallback_download_youtube(url, full_temp):
-                             # Need to cut it
-                             cut_cmd = [
-                                "ffmpeg", "-y",
-                                "-ss", str(used_seconds),
-                                "-t", str(duration),
-                                "-i", full_temp,
-                                "-map", "0:v:0",
-                                "-c:v", "copy",
-                                "-an",
-                                "-f", "mp4",
-                                "-movflags", "+faststart",
-                                output_path
-                            ]
-                             result = subprocess.run(cut_cmd, capture_output=True)
-                             if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 5000:
-                                 logger.info("Invidious fallback + FFmpeg cut successful.")
-                                 queue["tracking"][url] = used_seconds + duration
-                                 save_viral_queue(queue)
-                                 try: os.remove(full_temp)
-                                 except: pass
-                                 return output_path
-                        try: os.remove(full_temp)
-                        except: pass
-                    continue
+            result = subprocess.run(cut_cmd, capture_output=True)
+            if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                queue["tracking"][url] = used_seconds + duration
+                save_viral_queue(queue)
+                return output_path
             
-            print(f"--- All download strategies failed for {url} ---")
-            logger.warning(f"All strategies failed for {url}. Moving to next URL without blacklisting.")
-            continue
-
         except Exception as e:
-            logger.warning(f"Unexpected error processing {url}: {e}. Moving to next.")
+            logger.warning(f"Error processing {url}: {e}")
             continue
 
-    # 3. Safety Break: If loop finishes without returning
-    raise RuntimeError("All available viral URLs failed to process. Please check your links or internet connection.")
+    raise RuntimeError("All viral URLs failed to process.")
+
 
 def auto_crop_black_bars(clip):
     """Detects and crops horizontal black bars."""
@@ -1474,150 +1361,157 @@ def create_reel(video_path, audio_path, words, output_path, movie_title_en="", p
     """Assembles the final video with 60/40 split and movie title on divider."""
     logger.info("Assembling Reel (60/40 Split)...")
     
-    # Load Audio
-    audio_clip = AudioFileClip(audio_path)
-    total_duration = audio_clip.duration
-    
-    clips_to_composite = []
-    
-    # --- Top Screen (60%, 1080x1152) ---
-    logger.info("Processing Top Screen (60%)...")
-    if video_path and os.path.exists(video_path):
-        top_clip = VideoFileClip(video_path)
-        top_clip = auto_crop_black_bars(top_clip)
+    try:
+        # Load Audio
+        audio_clip = AudioFileClip(audio_path)
+        total_duration = audio_clip.duration
         
-        if top_clip.duration < total_duration:
-            top_clip = top_clip.with_effects([vfx.Loop(duration=total_duration)])
+        clips_to_composite = []
+        
+        # --- Top Screen (60%, 1080x1152) ---
+        logger.info("Processing Top Screen (60%)...")
+        if video_path and os.path.exists(video_path):
+            top_clip = VideoFileClip(video_path)
+            top_clip = auto_crop_black_bars(top_clip)
+            
+            if top_clip.duration < total_duration:
+                top_clip = top_clip.with_effects([vfx.Loop(duration=total_duration)])
+            else:
+                top_clip = top_clip.subclipped(0, total_duration)
+                
+            # Force Stretch Vertically to 1152px (ignoring aspect ratio)
+            top_clip = top_clip.with_effects([vfx.Resize(new_size=(1080, 1152))])
+            
+            # Anti-Copyright Effects
+            top_clip = top_clip.with_effects([vfx.MultiplySpeed(1.01)])
+            top_clip = top_clip.with_effects([vfx.Resize(1.02)])
+            
+            # Crop back to 1080x1152
+            w_final, h_final = 1080, 1152
+            top_clip = top_clip.cropped(
+                x1=(top_clip.w - w_final)//2, 
+                y1=(top_clip.h - h_final)//2, 
+                width=w_final, 
+                height=h_final
+            )
+            
+            top_clip = top_clip.with_position((0, 0))
+            clips_to_composite.append(top_clip)
+        elif poster_path and os.path.exists(poster_path) and os.path.getsize(poster_path) > 0:
+            logger.info("Using Poster/Image as fallback for Top Screen...")
+            try:
+                # Load image, resize to fill width, then center crop/pan
+                img_clip = ImageClip(poster_path).with_duration(total_duration)
+                
+                # Calculate resize to fill 1080x1152
+                w_img, h_img = img_clip.size
+                scale = max(1080/w_img, 1152/h_img)
+                img_clip = img_clip.with_effects([vfx.Resize(scale)])
+                
+                # Center Crop
+                img_clip = img_clip.cropped(x1=(img_clip.w - 1080)//2, y1=(img_clip.h - 1152)//2, width=1080, height=1152)
+                
+                # Apply Ken Burns effect (Subtle Zoom)
+                img_clip = img_clip.with_effects([vfx.Resize(lambda t: 1.0 + 0.05 * (t/total_duration))])
+                img_clip = img_clip.cropped(x1=(img_clip.w - 1080)//2, y1=(img_clip.h - 1152)//2, width=1080, height=1152)
+                
+                img_clip = img_clip.with_position((0, 0))
+                clips_to_composite.append(img_clip)
+            except Exception as e:
+                logger.error(f"ImageClip failed for {poster_path}: {e}")
+                clips_to_composite.append(ColorClip(size=(1080, 1152), color=(0,0,0), duration=total_duration).with_position((0,0)))
         else:
-            top_clip = top_clip.subclipped(0, total_duration)
-            
-        # Force Stretch Vertically to 1152px (ignoring aspect ratio)
-        top_clip = top_clip.with_effects([vfx.Resize(new_size=(1080, 1152))])
-        
-        # Anti-Copyright Effects
-        top_clip = top_clip.with_effects([vfx.MultiplySpeed(1.01)])
-        top_clip = top_clip.with_effects([vfx.Resize(1.02)])
-        
-        # Crop back to 1080x1152
-        w_final, h_final = 1080, 1152
-        top_clip = top_clip.cropped(
-            x1=(top_clip.w - w_final)//2, 
-            y1=(top_clip.h - h_final)//2, 
-            width=w_final, 
-            height=h_final
-        )
-        
-        top_clip = top_clip.with_position((0, 0))
-        clips_to_composite.append(top_clip)
-    elif poster_path and os.path.exists(poster_path) and os.path.getsize(poster_path) > 0:
-        logger.info("Using Poster/Image as fallback for Top Screen...")
-        try:
-            # Load image, resize to fill width, then center crop/pan
-            img_clip = ImageClip(poster_path).with_duration(total_duration)
-            
-            # Calculate resize to fill 1080x1152
-            w_img, h_img = img_clip.size
-            scale = max(1080/w_img, 1152/h_img)
-            img_clip = img_clip.with_effects([vfx.Resize(scale)])
-            
-            # Center Crop
-            img_clip = img_clip.cropped(x1=(img_clip.w - 1080)//2, y1=(img_clip.h - 1152)//2, width=1080, height=1152)
-            
-            # Apply Ken Burns effect (Subtle Zoom)
-            img_clip = img_clip.with_effects([vfx.Resize(lambda t: 1.0 + 0.05 * (t/total_duration))])
-            img_clip = img_clip.cropped(x1=(img_clip.w - 1080)//2, y1=(img_clip.h - 1152)//2, width=1080, height=1152)
-            
-            img_clip = img_clip.with_position((0, 0))
-            clips_to_composite.append(img_clip)
-        except Exception as e:
-            logger.error(f"ImageClip failed for {poster_path}: {e}")
+            logger.warning("No video or poster path found for Top Screen.")
             clips_to_composite.append(ColorClip(size=(1080, 1152), color=(0,0,0), duration=total_duration).with_position((0,0)))
-    else:
-        logger.warning("No video or poster path found for Top Screen.")
-        clips_to_composite.append(ColorClip(size=(1080, 1152), color=(0,0,0), duration=total_duration).with_position((0,0)))
 
-    # --- Bottom Screen (40%, 1080x768) ---
-    logger.info("Processing Bottom Screen (40%)...")
-    viral_path = download_viral_chunk(total_duration)
-    
-    if viral_path and os.path.exists(viral_path):
-        bot_clip = VideoFileClip(viral_path).without_audio()
-        if bot_clip.duration < total_duration:
-            bot_clip = bot_clip.with_effects([vfx.Loop(duration=total_duration)])
-        else:
-            bot_clip = bot_clip.subclipped(0, total_duration)
-            
-        bot_clip = apply_anti_copyright(bot_clip, (1080, 768))
-        bot_clip = bot_clip.with_position((0, 1152))
-        clips_to_composite.append(bot_clip)
-    else:
-        logger.warning("No viral video found for Bottom Screen.")
-        clips_to_composite.append(ColorClip(size=(1080, 768), color=(20,20,20), duration=total_duration).with_position((0,1152)))
-
-    # --- Logo ---
-    logo_path = "logo.png"
-    if os.path.exists(logo_path):
-        logo_img = Image.open(logo_path).convert("RGBA")
-        logo_np = np.array(logo_img)
-        logo = ImageClip(logo_np, transparent=True)
-        logo = (logo.with_duration(total_duration)
-                .with_effects([vfx.Resize(width=225)]) 
-                .with_position((10, 30)))
-        clips_to_composite.append(logo)
-    else:
-        logger.warning(f"Logo not found at {logo_path}")
-
-    # --- Website Image (website.png) ---
-    website_img_path = "website.png"
-    website_clip = None
-    if os.path.exists(website_img_path):
-        try:
-            web_img = Image.open(website_img_path).convert("RGBA")
-            web_np = np.array(web_img)
-            website_clip = (ImageClip(web_np, transparent=True)
-                            .with_duration(total_duration)
-                            .with_effects([vfx.Resize(width=int(1080 * 0.7))])
-                            .with_position(('center', 0.93), relative=True))
-        except Exception as e:
-            logger.error(f"Error adding website image: {e}")
-    else:
-        logger.warning(f"website.png not found at {website_img_path}")
-
-    # --- Composite final video with correct layer order ---
-    # Append critical overlays at the VERY END to ensure they are on top
-    if website_clip:
-        clips_to_composite.append(website_clip)
-        logger.info("Added website.png overlay at bottom center")
-
-    logger.info("Rendering final video...")
-    with console.status("[bold red]Rendering Final Reel...[/bold red]"):
-        final = CompositeVideoClip(clips_to_composite, size=(1080, 1920))
-        voiceover_audio = audio_clip
-        mixed_audio = voiceover_audio
-        final = final.with_audio(mixed_audio)
+        # --- Bottom Screen (40%, 1080x768) ---
+        logger.info("Processing Bottom Screen (40%)...")
+        viral_path = download_viral_chunk(total_duration)
         
-        # Ensure output_path is strictly a string
-        if not isinstance(output_path, str):
-            output_path = str(output_path)
+        if viral_path and os.path.exists(viral_path):
+            bot_clip = VideoFileClip(viral_path).without_audio()
+            if bot_clip.duration < total_duration:
+                bot_clip = bot_clip.with_effects([vfx.Loop(duration=total_duration)])
+            else:
+                bot_clip = bot_clip.subclipped(0, total_duration)
+                
+            bot_clip = apply_anti_copyright(bot_clip, (1080, 768))
+            bot_clip = bot_clip.with_position((0, 1152))
+            clips_to_composite.append(bot_clip)
+        else:
+            logger.warning("No viral video found for Bottom Screen.")
+            clips_to_composite.append(ColorClip(size=(1080, 768), color=(20,20,20), duration=total_duration).with_position((0,1152)))
+
+        # --- Logo ---
+        logo_path = "logo.png"
+        if os.path.exists(logo_path):
+            logo_img = Image.open(logo_path).convert("RGBA")
+            logo_np = np.array(logo_img)
+            logo = ImageClip(logo_np, transparent=True)
+            logo = (logo.with_duration(total_duration)
+                    .with_effects([vfx.Resize(width=225)]) 
+                    .with_position((10, 30)))
+            clips_to_composite.append(logo)
+        else:
+            logger.warning(f"Logo not found at {logo_path}")
+
+        # --- Website Image (website.png) ---
+        website_img_path = "website.png"
+        website_clip = None
+        if os.path.exists(website_img_path):
+            try:
+                web_img = Image.open(website_img_path).convert("RGBA")
+                web_np = np.array(web_img)
+                website_clip = (ImageClip(web_np, transparent=True)
+                                .with_duration(total_duration)
+                                .with_effects([vfx.Resize(width=int(1080 * 0.7))])
+                                .with_position(('center', 0.93), relative=True))
+            except Exception as e:
+                logger.error(f"Error adding website image: {e}")
+        else:
+            logger.warning(f"website.png not found at {website_img_path}")
+
+        # --- Composite final video with correct layer order ---
+        # Append critical overlays at the VERY END to ensure they are on top
+        if website_clip:
+            clips_to_composite.append(website_clip)
+            logger.info("Added website.png overlay at bottom center")
+
+        logger.info("Rendering final video...")
+        with console.status("[bold red]Rendering Final Reel...[/bold red]"):
+            final = CompositeVideoClip(clips_to_composite, size=(1080, 1920))
+            voiceover_audio = audio_clip
+            mixed_audio = voiceover_audio
+            final = final.with_audio(mixed_audio)
             
-        final.write_videofile(output_path, fps=30, codec='libx264', audio_codec='aac', threads=4)
-    
-   # Cleanup
-    final.close()
-    audio_clip.close()
-    
-    # Explicitly close sub-clips to release file handles on Windows
-    for clip in clips_to_composite:
-        try:
-            clip.close()
-        except:
-            pass
-            
-    if viral_path:
-        try:
-            os.remove(viral_path)
-        except Exception as e:
-            logger.warning(f"Could not remove viral temp file: {e}")
+            # Ensure output_path is strictly a string
+            if not isinstance(output_path, str):
+                output_path = str(output_path)
+                
+            final.write_videofile(output_path, fps=30, codec='libx264', audio_codec='aac', threads=4)
+        
+        # Cleanup
+        final.close()
+        audio_clip.close()
+        
+        # Explicitly close sub-clips to release file handles on Windows
+        for clip in clips_to_composite:
+            try:
+                clip.close()
+            except:
+                pass
+                
+        if viral_path:
+            try:
+                os.remove(viral_path)
+            except Exception as e:
+                logger.warning(f"Could not remove viral temp file: {e}")
+                
+        return output_path
+
+    except Exception as e:
+        logger.error(f"Error in create_reel: {e}")
+        return None
 
 # -----------------------------------------------------------------------------
 # Main Execution
@@ -1866,12 +1760,22 @@ async def run_one_cycle():
         # Poster for branding (use final_thumb as primary, download_movie_poster as fallback)
         poster_path = final_thumb if final_thumb else (download_movie_poster(poster_url) if poster_url else None)
         
-        # 3. Script
-        script, caption = generate_script(title, overview, media_type, genre_ar)
+        # 3. Script & Trailer Transcription (Hierarchical Logic)
+        logger.info(f"Step 3: Generating script using hierarchical logic for '{title}'...")
+        trailer_transcription = get_trailer_transcription(trailer_url, title)
+        ai_story, caption = generate_script(title, overview, media_type, genre_ar, trailer_text=trailer_transcription)
         
-        # 3. Audio
+        # Hardcoded Intro & Outro Assembly
+        media_type_ar = "فيلم" if media_type == "movie" else "مسلسل"
+        formatted_intro = INTRO_TEMPLATE.format(content_type=media_type_ar, genres=genre_ar, title=title)
+        
+        # Final Script Assembly with PAUSEs
+        final_script = f"{formatted_intro} [PAUSE] {ai_story} [PAUSE] {OUTRO_TEXT}"
+        
+        # 4. Audio
         audio_path = f"{TEMP_DIR}/voiceover.mp3"
-        audio_duration = await generate_audio(script, audio_path, media_type=media_type)
+        # Apply -20% rate for slower narration (0.8 speed) as requested by user
+        audio_duration = await generate_audio(final_script, audio_path, media_type=media_type, rate="-20%")
         if audio_duration and audio_duration < 55:
             logger.warning(f"Audio too short ({audio_duration:.1f} seconds), video will be short.")
         
@@ -1890,22 +1794,26 @@ async def run_one_cycle():
             
         # Assemble Reel (New Logic)
         output_video_path = f"{OUTPUT_DIR}/final_reel.mp4"
-        if not create_reel(video_path, audio_path, words, output_video_path, movie_title_en=title, poster_path=poster_path):
-            logger.error("Reel generation failed.")
-            sys.exit(1) # Critical failure at render stage
+        try:
+            if not create_reel(video_path, audio_path, words, output_video_path, movie_title_en=title, poster_path=poster_path):
+                logger.error("Reel generation failed.")
+                sys.exit(1) # Critical failure at render stage
+        except Exception:
+            logger.exception("Reel generation failed with error:")
+            sys.exit(1)
             
-            # 5. Metadata
-            final_caption = f"{caption}\n\n#سينما_أونلاين #ترشيحات_أفلام\n{WEBSITE_TEXT}"
-            final_comment = f"لمشاهدة ال{media_type_ar} كاملاً وبدون اعلانات:\n{watch_url}"
-            
-            if SIMULATION_MODE:
-                logger.info(f"[SIMULATION] Video: {output_video_path}, Thumb: {final_thumb}")
+        # 5. Metadata
+        final_caption = f"{caption}\n\n#سينما_أونلاين #ترشيحات_أفلام\n{WEBSITE_TEXT}"
+        final_comment = f"لمشاهدة ال{media_type_ar} كاملاً وبدون اعلانات:\n{watch_url}"
+        
+        if SIMULATION_MODE:
+            logger.info(f"[SIMULATION] Video: {output_video_path}, Thumb: {final_thumb}")
+        else:
+            success = upload_to_facebook(output_video_path, final_thumb, final_caption, final_comment, FB_PAGE_ID, FB_PAGE_TOKEN, content_id=content_db_id)
+            if success:
+                send_telegram_alert(f"✅ <b>Reel Published!</b>\n\n🎬 <b>Title:</b> {title}\n🆔 <b>DB ID:</b> {content_db_id}\n\n🔗 <a href='{watch_url}'>Watch on Cinma.online</a>")
             else:
-                success = upload_to_facebook(output_video_path, final_thumb, final_caption, final_comment, FB_PAGE_ID, FB_PAGE_TOKEN, content_id=content_db_id)
-                if success:
-                    send_telegram_alert(f"✅ <b>Reel Published!</b>\n\n🎬 <b>Title:</b> {title}\n🆔 <b>DB ID:</b> {content_db_id}\n\n🔗 <a href='{watch_url}'>Watch on Cinma.online</a>")
-                else:
-                    send_telegram_alert(f"⚠️ <b>Upload Failed!</b>\n\n🎬 <b>Title:</b> {title}\nCheck logs for FB API error details.")
+                send_telegram_alert(f"⚠️ <b>Upload Failed!</b>\n\n🎬 <b>Title:</b> {title}\nCheck logs for FB API error details.")
         
         # 6. Reply to Comments (Skipped in Simulation as requested, but logic is there)
         if not SIMULATION_MODE:
@@ -1933,9 +1841,6 @@ async def run_one_cycle():
 
 if __name__ == "__main__":
     try:
-        # Check scheduling before starting cycle
-        check_scheduling()
-        
         asyncio.run(run_one_cycle())
     except KeyboardInterrupt:
         print("Bot stopped by user.")

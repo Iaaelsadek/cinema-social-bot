@@ -1,4 +1,15 @@
-# Cinema Social Bot v2.0 🎬🤖
+---
+title: Ikhtabot
+emoji: 🎬
+colorFrom: indigo
+colorTo: blue
+sdk: gradio
+sdk_version: 5.16.0
+app_file: app.py
+pinned: false
+---
+
+# Cinema Social Bot v3.0 🎬🤖
 
 A fully automated AI-powered bot that creates and posts viral movie reels to Facebook.
 

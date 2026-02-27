@@ -1084,20 +1084,31 @@ def get_yt_duration(url):
         try:
             logger.info(f"--- Strategy {name} Attempt for {url} Duration ---")
             ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': True,
-                'skip_download': True,
-                'source_address': '0.0.0.0', # Force IPv4 to fix Errno -5 DNS bug
-                'socket_timeout': 30,
-                'retries': 10,
+                'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'outtmpl': 'temp/trailer.%(ext)s',
+                'noplaylist': True,
+                'source_address': '0.0.0.0',  # CRITICAL: Forces IPv4 to bypass GitHub Actions DNS errors
                 'nocheckcertificate': True,
+                'ignoreerrors': True,
+                'no_warnings': True,
+                'quiet': True,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['ios', 'android', 'web'], # CRITICAL: Bypass YouTube anti-bot
+                        'player_skip': ['webpage', 'configs', 'js']
+                    }
+                },
                 'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1',
+                    'Accept-Language': 'en-US,en;q=0.9',
                 }
             }
             if extractor_args:
-                ydl_opts['extractor_args'] = extractor_args
+                # Merge extractor_args if provided (though the new structure above is more comprehensive)
+                if 'youtube' in extractor_args:
+                    ydl_opts['extractor_args']['youtube'].update(extractor_args['youtube'])
+                else:
+                    ydl_opts['extractor_args'].update(extractor_args)
                 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)

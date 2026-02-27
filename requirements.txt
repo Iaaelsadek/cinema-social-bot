@@ -19,8 +19,8 @@ lxml
 playwright
 gradio
 gradio-client>=1.6.0
-fastapi==0.115.0
-uvicorn==0.30.6
+fastapi>=0.115.2
+uvicorn>=0.30.6
 psutil
 websockets==12.0
 huggingface_hub==0.24.1

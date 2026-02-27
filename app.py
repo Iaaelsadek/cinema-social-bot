@@ -82,20 +82,12 @@ with gr.Blocks(title="Cinema Emperor V6") as demo:
     
     with gr.Row(): 
         with gr.Column(): 
-            sys_mon = gr.Markdown(get_sys_info()) 
-            gr.Markdown("### 🌍 Social Dispatch") 
-            tg_cb = gr.Checkbox(label="Telegram", value=True) 
-            fb_cb = gr.Checkbox(label="Facebook", value=False) 
-            insta_cb = gr.Checkbox(label="Instagram", value=False) 
-            yt_cb = gr.Checkbox(label="YouTube", value=False) 
-            tk_cb = gr.Checkbox(label="TikTok", value=False) 
-            wa_cb = gr.Checkbox(label="WhatsApp", value=False) 
-            
-            gr.Markdown("### 🎙️ Voice Lab") 
+            gr.Markdown("### 🎙️ Settings") 
             voice_dd = gr.Dropdown(list(ARABIC_VOICES.keys()), label="Narrator", value="شاكر (مصر)") 
-            audio_prev = gr.Audio(label="Preview") 
-            voice_dd.change(preview_voice, voice_dd, audio_prev) 
             speed_sl = gr.Slider(-50, 50, -10, step=5, label="Speed (%)") 
+            quality = gr.Dropdown(["720p", "1080p", "4K"], label="Quality", value="1080p") 
+            ai_temp = gr.Slider(0, 1, 0.7, label="AI Imagination") 
+            ai_style = gr.Dropdown(["Dramatic", "Action", "Horror", "Documentary"], label="Tone", value="Dramatic") 
         
         with gr.Column(): 
             mode_rd = gr.Radio(["Auto", "Manual"], label="Mode", value="Auto") 
@@ -104,21 +96,14 @@ with gr.Blocks(title="Cinema Emperor V6") as demo:
             m_overview = gr.Textbox(label="Overview", lines=3) 
             
             start_btn = gr.Button("🔥 INITIALIZE PRODUCTION 🔥", variant="primary") 
-            
             log_out = gr.Textbox(label="Logs", lines=10) 
-            vid_prev = gr.Video(label="Output") 
+            vid_path_out = gr.Textbox(label="Video Path") 
             
-        with gr.Column(): 
-            gr.Markdown("### ⚙️ Settings") 
-            quality = gr.Dropdown(["720p", "1080p", "4K"], label="Quality", value="1080p") 
-            ai_temp = gr.Slider(0, 1, 0.7, label="AI Imagination") 
-            ai_style = gr.Dropdown(["Dramatic", "Action", "Horror", "Documentary"], label="Tone", value="Dramatic") 
-
-    # --- WIRING --- 
+    # --- WIRING (Minimal) --- 
     start_btn.click( 
         fn=master_launch, 
-        inputs=[mode_rd, m_title, m_trailer, m_overview, tg_cb, fb_cb, insta_cb, yt_cb, tk_cb, wa_cb, voice_dd, speed_sl, quality, ai_temp, ai_style], 
-        outputs=[log_out, vid_prev] 
+        inputs=[mode_rd, m_title, m_trailer, m_overview, gr.State(True), gr.State(False), gr.State(False), gr.State(False), gr.State(False), gr.State(False), voice_dd, speed_sl, quality, ai_temp, ai_style], 
+        outputs=[log_out, vid_path_out] 
     ) 
 
 if __name__ == "__main__": 

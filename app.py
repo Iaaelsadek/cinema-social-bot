@@ -4,62 +4,89 @@ import subprocess
 import sys 
 
 LOG_FILE = "system_logs.txt" 
+current_process = None 
 
-def stream_logs(env_vars): 
-    os.system("playwright install chromium") 
-    env_vars["PYTHONUNBUFFERED"] = "1" 
-    
-    with open(LOG_FILE, "w", encoding="utf-8") as f: 
-        f.write("🚀 Starting Cinema Bot (Safe Mode)...\n") 
-        
-    process = subprocess.Popen( 
-        [sys.executable, "main.py"], 
-        env=env_vars, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1 
-    ) 
-    
-    logs = "" 
-    for line in iter(process.stdout.readline, ''): 
-        logs += line 
-        yield logs, gr.update() 
-    process.wait() 
+def get_logs(): 
+    if os.path.exists(LOG_FILE): 
+        with open(LOG_FILE, "r", encoding="utf-8") as f: 
+            return f.read() 
+    return "لا توجد سجلات بعد..." 
 
-def safe_launch(movie_title, trailer_url, voice_speed): 
+def run_bot(m_title, m_trailer, m_overview): 
+    global current_process 
+    
+    # 1. تجهيز بيئة العمل الأساسية 
     env = os.environ.copy() 
-    env.update({ 
-        "FORCE_POST": "true", 
-        "POST_TELEGRAM": "True", 
-        "VOICE_MODEL": "ar-EG-ShakirNeural", 
-        "VOICE_SPEED": str(voice_speed) 
-    }) 
+    env["FORCE_POST"] = "true" 
+    env["PYTHONUNBUFFERED"] = "1" 
     
-    if movie_title.strip() != "": 
+    # 2. تحديد نوع التشغيل (آلي أو يدوي) 
+    if m_title and m_title.strip() != "": 
         env["MANUAL_MODE"] = "true" 
-        env["MANUAL_TITLE"] = movie_title 
-        env["MANUAL_TRAILER"] = trailer_url 
+        env["MANUAL_TITLE"] = m_title 
+        env["MANUAL_TRAILER"] = m_trailer 
+        env["MANUAL_OVERVIEW"] = m_overview 
     else: 
         env["MANUAL_MODE"] = "false" 
+
+    # 3. إعدادات ثابتة (عشان نتجنب أي إيرور من الواجهة) 
+    env["VOICE_MODEL"] = "ar-EG-ShakirNeural" 
+    env["VOICE_SPEED"] = "-10" 
+    env["POST_TELEGRAM"] = "True" 
+
+    # 4. تشغيل المكنة 
+    os.system("playwright install chromium") 
+    
+    with open(LOG_FILE, "w", encoding="utf-8") as f: 
+        f.write("🚀 جاري بدء تشغيل البوت...\n") 
         
-    yield from stream_logs(env) 
+    current_process = subprocess.Popen( 
+        [sys.executable, "main.py"], 
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1 
+    ) 
+    
+    # قراءة السجلات سطر بسطر 
+    logs = "" 
+    for line in iter(current_process.stdout.readline, ''): 
+        logs += line 
+        yield logs, gr.update() 
+        
+    current_process.wait() 
+    
+    # جلب الفيديو لو خلص 
+    vid_path = "output/final_reel.mp4" 
+    if os.path.exists(vid_path): 
+        yield logs + "\n✅ تمت العملية بنجاح!", gr.update(value=vid_path) 
+    else: 
+        yield logs + "\n❌ انتهت العملية ولكن لم يتم العثور على فيديو.", gr.update() 
 
-# ULTRA SIMPLE UI - NO TABS, NO ACCORDIONS, NO CHECKBOXES 
-with gr.Blocks(title="Cinema Bot Safe Mode") as demo: 
-    gr.Markdown("# 🎬 Cinema Social Bot (Safe Mode)") 
-    gr.Markdown("⚠️ *Running in Safe Mode due to Gradio 5 schema bugs.* Leave 'Movie Title' blank for AUTO mode.") 
-    
-    m_title = gr.Textbox(label="Movie Title (Leave blank for Auto Mode)") 
-    m_trailer = gr.Textbox(label="Trailer URL (Optional)") 
-    v_speed = gr.Textbox(label="Voice Speed (e.g., -10, 0, 10)", value="-10") 
-    
-    start_btn = gr.Button("🚀 START PRODUCTION", variant="primary") 
-    
-    log_out = gr.Textbox(label="System Logs", lines=15) 
-    vid_prev = gr.Video(label="Output") 
 
-    start_btn.click( 
-        fn=safe_launch, 
-        inputs=[m_title, m_trailer, v_speed], 
-        outputs=[log_out, vid_prev] 
+# ===================================================================== 
+# THE SAFEST UI POSSIBLE FOR GRADIO 5 (NO ACCORDIONS, NO SLIDERS, NO CHECKBOXES) 
+# ===================================================================== 
+with gr.Blocks(title="Cinema Social Bot") as demo: 
+    gr.Markdown("# 🎬 Cinema Social Bot") 
+    gr.Markdown("اكتب اسم الفيلم للإنتاج اليدوي، أو اترك الخانة فارغة للإنتاج الآلي.") 
+    
+    # مدخلات بسيطة جداً (Textboxes فقط لتجنب أي Schema Errors) 
+    movie_title = gr.Textbox(label="اسم الفيلم (اختياري)") 
+    movie_trailer = gr.Textbox(label="رابط إعلان يوتيوب (اختياري)") 
+    movie_overview = gr.Textbox(label="ملخص القصة (اختياري)", lines=2) 
+    
+    # زر التشغيل 
+    run_btn = gr.Button("🚀 تشغيل البوت الآن", variant="primary") 
+    
+    # المخرجات 
+    log_output = gr.Textbox(label="سجل العمليات (Logs)", lines=15) 
+    video_output = gr.Video(label="الفيديو النهائي") 
+
+    # ربط الزر بالدالة 
+    run_btn.click( 
+        fn=run_bot, 
+        inputs=[movie_title, movie_trailer, movie_overview], 
+        outputs=[log_output, video_output], 
+        api_name=False # إغلاق الـ API لمنع الـ Schema builder من فحص الكود 
     ) 
 
 if __name__ == "__main__": 
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    demo.launch(server_name="0.0.0.0", server_port=7860, show_api=False)

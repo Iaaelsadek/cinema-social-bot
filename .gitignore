@@ -20,18 +20,15 @@ Thumbs.db
 *.7z
 *.rar
 
-# Data and Logs
-logs/
-temp/
-*.log
+# State and Queue
 bot_state.json
+viral_queue.json
+viral_memory.json
+system_logs.txt
 
-# Environment variables
-.env
-.venv
-env/
-venv/
-ENV/
+# Local Data and Links
+viral_links.txt
+catalog.csv
 
 # VS Code / IDE
 .vscode/
@@ -42,3 +39,4 @@ supabase_local/
 *.txt
 !requirements.txt
 !packages.txt
+!viral_links.txt

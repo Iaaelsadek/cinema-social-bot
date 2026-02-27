@@ -9,15 +9,17 @@ app_file: app.py
 pinned: false
 ---
 
-# Cinema Social Bot v3.0 🎬🤖
+# Cinema Social Bot v6.0 🎬🤖
 
-A fully automated AI-powered bot that creates and posts viral movie reels to Facebook.
+A fully automated AI-powered bot that creates and posts viral movie reels to Facebook, optimized for Gradio 5 and Hugging Face.
 
-## 🌟 Version 2.0 Highlights
+## 🌟 Version 6.0 Highlights
+- **Gradio 5 Strict Compliance**: Fully rewritten dashboard for maximum stability on Gradio 5.16+.
+- **Enhanced YouTube Bypass**: Updated `yt-dlp` logic with iPad Safari spoofing for reliable trailer downloads.
+- **Cyberpunk UI**: Modern, sleek dashboard with system monitoring and real-time logs.
 - **Improved Storytelling**: Scripts are now between 230-250 words for deeper engagement.
 - **Natural Pacing**: Optimized speech speed (0.8x) and precise pausing (0.1s/0.4s) for a cinematic feel.
 - **Arabic Phonetic Engine**: Enhanced diacritics enforcement for "الْمُقَدَّم" and solar/lunar letter rules.
-- **Model Fallback**: Uses `gemini-2.5-pro` with fallback to `gemini-3-flash-preview`.
 
 ## 🚀 Features
 

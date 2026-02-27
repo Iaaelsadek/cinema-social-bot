@@ -226,4 +226,9 @@ with gr.Blocks(title="Cinema Emperor Dashboard", css=css, theme=gr.themes.Monoch
     clear_btn.click(clear_logs, outputs=[log_output, download_log_btn]) 
 
 if __name__ == "__main__": 
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    demo.launch( 
+        server_name="0.0.0.0", 
+        server_port=7860, 
+        show_api=False,  # CRITICAL: This stops the schema generator from crashing 
+        ssr=False        # Disable Server Side Rendering to be safe 
+    )

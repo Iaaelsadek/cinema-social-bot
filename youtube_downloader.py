@@ -25,41 +25,42 @@ UA_IPHONE = (
 )
 
 METHODS = [
-    # ✅ الطريقة الوحيدة المؤكدة النجاح
+    # 1. Cookies + iPad UA (أفضل فرصة للنجاح)
+    {
+        "name": "cookies+iPad-UA",
+        "args": ["--cookies", "cookies.txt", "--user-agent", UA_IPAD, "-f", "best[ext=mp4]/best"],
+        "requires_cookies": True,
+    },
+    # 2. Cookies Only
+    {
+        "name": "cookies-only",
+        "args": ["--cookies", "cookies.txt", "-f", "best[ext=mp4]/best"],
+        "requires_cookies": True,
+    },
+    # 3. iPad Safari iOS17 (بدون كوكيز كاحتياط)
     {
         "name": "iPad-Safari-iOS17",
-        "args": ["--user-agent", UA_IPAD, "-f", "18/worst[ext=mp4]/worst"],
+        "args": ["--user-agent", UA_IPAD, "-f", "best[ext=mp4]/best"],
     },
-    # iPhone Safari
+    # 4. iPhone Safari iOS17
     {
         "name": "iPhone-Safari-iOS17",
-        "args": ["--user-agent", UA_IPHONE, "-f", "18/worst[ext=mp4]/worst"],
+        "args": ["--user-agent", UA_IPHONE, "-f", "best[ext=mp4]/best"],
     },
-    # iPad + iOS client
+    # 5. iPad + iOS client
     {
         "name": "iPad-UA+iOS-client",
         "args": [
             "--user-agent", UA_IPAD,
             "--extractor-args", "youtube:player_client=ios",
-            "-f", "18/worst",
+            "-f", "best[ext=mp4]/best",
         ],
     },
-    # iPad + رابط /watch بدل /shorts
+    # 6. iPad + watch url
     {
         "name": "iPad-Safari-watch-url",
-        "args": ["--user-agent", UA_IPAD, "-f", "18/worst[ext=mp4]/worst"],
+        "args": ["--user-agent", UA_IPAD, "-f", "best[ext=mp4]/best"],
         "use_watch_url": True,
-    },
-    # cookies إن وُجدت
-    {
-        "name": "cookies+iPad-UA",
-        "args": ["--cookies", "cookies.txt", "--user-agent", UA_IPAD, "-f", "18/worst"],
-        "requires_cookies": True,
-    },
-    {
-        "name": "cookies-only",
-        "args": ["--cookies", "cookies.txt", "-f", "worst"],
-        "requires_cookies": True,
     },
 ]
 

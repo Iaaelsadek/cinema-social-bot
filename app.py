@@ -77,12 +77,49 @@ body { background-color: #050505; color: #00ffcc; }
 h1 { text-shadow: 0 0 10px #ff3366; color: #ff3366 !important; } 
 """ 
 
-with gr.Blocks() as demo: 
-    gr.Markdown("# ☢️ CINEMA BOT COMMAND CENTER V6.0 ☢️") 
-    gr.Markdown("ISOLATION MODE: Checking environment stability...") 
-    btn = gr.Button("Test") 
-    out = gr.Textbox() 
-    btn.click(lambda: "OK", None, out) 
+with gr.Blocks(title="Cinema Emperor V6", css=custom_css) as demo: 
+    gr.HTML("<div style='text-align:center;'><h1>☢️ CINEMA BOT COMMAND CENTER V6.0 ☢️</h1></div>") 
+    
+    with gr.Row(): 
+        with gr.Column(): 
+            sys_mon = gr.Markdown(get_sys_info()) 
+            with gr.Accordion("🌍 Social Dispatch", open=True): 
+                tg_cb = gr.Checkbox(label="Telegram", value=True) 
+                fb_cb = gr.Checkbox(label="Facebook", value=False) 
+                insta_cb = gr.Checkbox(label="Instagram", value=False) 
+                yt_cb = gr.Checkbox(label="YouTube", value=False) 
+                tk_cb = gr.Checkbox(label="TikTok", value=False) 
+                wa_cb = gr.Checkbox(label="WhatsApp", value=False) 
+            
+            with gr.Accordion("🎙️ Voice Lab", open=True): 
+                voice_dd = gr.Dropdown(list(ARABIC_VOICES.keys()), label="Narrator", value="شاكر (مصر)") 
+                audio_prev = gr.Audio(label="Preview") 
+                voice_dd.change(preview_voice, voice_dd, audio_prev) 
+                speed_sl = gr.Slider(-50, 50, -10, step=5, label="Speed (%)") 
+        
+        with gr.Column(): 
+            mode_rd = gr.Radio(["Auto", "Manual"], label="Mode", value="Auto") 
+            with gr.Accordion("🎯 Manual Data", open=True): 
+                m_title = gr.Textbox(label="Title") 
+                m_trailer = gr.Textbox(label="Trailer URL") 
+                m_overview = gr.Textbox(label="Overview", lines=3) 
+            
+            start_btn = gr.Button("🔥 INITIALIZE PRODUCTION 🔥", variant="primary") 
+            log_out = gr.Textbox(label="Logs", lines=15, elem_id="log_box") 
+            vid_prev = gr.Video(label="Final Output") 
+            
+        with gr.Column(): 
+            with gr.Accordion("⚙️ AI & Video", open=True): 
+                quality = gr.Dropdown(["720p", "1080p", "4K"], label="Quality", value="1080p") 
+                ai_temp = gr.Slider(0, 1, 0.7, label="AI Imagination") 
+                ai_style = gr.Dropdown(["Dramatic", "Action", "Horror", "Documentary"], label="Tone", value="Dramatic") 
+
+    # --- WIRING --- 
+    start_btn.click( 
+        fn=master_launch, 
+        inputs=[mode_rd, m_title, m_trailer, m_overview, tg_cb, fb_cb, insta_cb, yt_cb, tk_cb, wa_cb, voice_dd, speed_sl, quality, ai_temp, ai_style], 
+        outputs=[log_out, vid_prev] 
+    ) 
 
 if __name__ == "__main__": 
     demo.launch( 

@@ -961,20 +961,20 @@ def get_trailer_transcription(trailer_url, movie_title):
             # The rest of transcription logic expects audio_path
             actual_audio_path = audio_path
             if os.path.exists(actual_audio_path) and os.path.getsize(actual_audio_path) > 1000:
-            logger.info(f"Trailer audio downloaded to {actual_audio_path}. Transcribing...")
-            
-            # Use Whisper to transcribe
-            whisper_lib = get_whisper()
-            model = whisper_lib.load_model("base") # Use "base" or "tiny" for speed
-            result = model.transcribe(actual_audio_path)
-            transcription = result.get("text", "").strip()
-            
-            # Clean up
-            try: os.remove(actual_audio_path)
-            except: pass
-            
-            logger.info(f"Transcription completed ({len(transcription)} chars)")
-            return transcription
+                logger.info(f"Trailer audio downloaded to {actual_audio_path}. Transcribing...")
+                
+                # Use Whisper to transcribe
+                whisper_lib = get_whisper()
+                model = whisper_lib.load_model("base") # Use "base" or "tiny" for speed
+                result = model.transcribe(actual_audio_path)
+                transcription = result.get("text", "").strip()
+                
+                # Clean up
+                try: os.remove(actual_audio_path)
+                except: pass
+                
+                logger.info(f"Transcription completed ({len(transcription)} chars)")
+                return transcription
             
     except Exception as e:
         logger.warning(f"Trailer audio transcription failed with Android spoofing: {e}")

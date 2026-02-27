@@ -99,10 +99,11 @@ with gr.Blocks(title="Cinema Emperor V6") as demo:
             log_out = gr.Textbox(label="Logs", lines=10) 
             vid_path_out = gr.Textbox(label="Video Path") 
             
-    # --- WIRING (Minimal) --- 
+    # --- WIRING (Test) --- 
+    def test_fn(): return "System Initialized", "None"
     start_btn.click( 
-        fn=master_launch, 
-        inputs=[mode_rd, m_title, m_trailer, m_overview, gr.State(True), gr.State(False), gr.State(False), gr.State(False), gr.State(False), gr.State(False), voice_dd, speed_sl, quality, ai_temp, ai_style], 
+        fn=test_fn, 
+        inputs=[], 
         outputs=[log_out, vid_path_out] 
     ) 
 

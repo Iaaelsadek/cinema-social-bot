@@ -1,21 +1,7 @@
+import gradio as gr 
 import os 
 import subprocess 
 import sys 
-
-# --- FORCE STABLE GRADIO --- 
-# Hugging Face forcefully installs Gradio 5.x which has a fatal schema bug. 
-# We intercept the startup to forcefully downgrade to the stable 4.44.1 
-try: 
-    import gradio as gr 
-    if gr.__version__.startswith("5."): 
-        print(f"⚠️ Detected unstable Gradio v{gr.__version__}. Forcing downgrade to 4.44.1...") 
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "gradio==4.44.1"]) 
-        print("✅ Downgrade complete. Restarting app...") 
-        os.execv(sys.executable, ['python'] + sys.argv) 
-except ImportError: 
-    pass 
-
-import gradio as gr 
 import asyncio 
 import edge_tts 
 
@@ -223,11 +209,18 @@ with gr.Blocks(title="Cinema Emperor Dashboard", css=css, theme=gr.themes.Monoch
             with gr.Accordion("� عقل الذكاء الاصطناعي (AI Settings)", open=False): 
                 temp_slider = gr.Slider(0.0, 1.0, value=0.7, step=0.1, label="درجة الإبداع (Temperature)", info="0 يعني دقيق وصارم، 1 يعني خيالي ومبدع.") 
 
+    # Wiring up the events
+    def toggle_manual(choice): 
+        return gr.update(visible=(choice == "Manual")) 
+    
+    mode_radio.change(fn=toggle_manual, inputs=[mode_radio], outputs=[manual_group], api_name=False) 
+
     # Wiring up the launch button to pass all 14 arguments 
     start_btn.click( 
-        master_launcher, 
+        fn=master_launcher, 
         inputs=[mode_radio, m_title, m_trailer, m_overview, tg_cb, fb_cb, insta_cb, yt_cb, tk_cb, wa_cb, voice_dd, speed_slider, quality_dd, temp_slider], 
-        outputs=[log_output, download_log_btn, video_preview, assets_files] 
+        outputs=[log_output, download_log_btn, video_preview, assets_files],
+        api_name=False
     ) 
     kill_btn.click(cancel_process, outputs=[log_output]) 
     clear_btn.click(clear_logs, outputs=[log_output, download_log_btn]) 

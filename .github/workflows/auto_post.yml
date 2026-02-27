@@ -2,8 +2,8 @@ name: Auto Viral Reel Poster
 
 on:
   schedule:
-    # Runs HOURLY to check the randomized schedule
-    - cron: '0 * * * *'
+    # Runs every 4 hours (at minute 0)
+    - cron: '0 */4 * * *'
   workflow_dispatch:
     inputs:
       force_post:

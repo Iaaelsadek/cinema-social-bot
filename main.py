@@ -891,7 +891,7 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
     raw_path = os.path.join(TEMP_DIR, f"movie_raw_{unique_id}.mp4")
     cut_path = os.path.join(TEMP_DIR, f"movie_clip_{unique_id}.mp4")
 
-    # Android Client Workaround: Bypasses "Sign in to confirm you're not a bot" on Headless Servers
+    # iOS/iPad Safari Client Workaround: Bypasses "Sign in to confirm you're not a bot"
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': raw_path,
@@ -900,9 +900,9 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
         'socket_timeout': 30,
         'retries': 10,
         'nocheckcertificate': True,
-        'extractor_args': {'youtube': ['player_client=android,ios']},
+        'extractor_args': {'youtube': ['player_client=ios']},
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
         }
     }
 
@@ -958,7 +958,7 @@ def get_trailer_transcription(trailer_url, movie_title):
     logger.info(f"Downloading trailer audio for transcription: {trailer_url}")
     audio_path = os.path.join(TEMP_DIR, f"trailer_trans_{int(time.time())}.mp3")
     
-    # Android Client Workaround for Transcription Audio
+    # iOS/iPad Safari Client Workaround for Transcription Audio
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': audio_path.replace('.mp3', '.%(ext)s'),
@@ -973,9 +973,9 @@ def get_trailer_transcription(trailer_url, movie_title):
         'socket_timeout': 30,
         'retries': 10,
         'nocheckcertificate': True,
-        'extractor_args': {'youtube': ['player_client=android,ios']},
+        'extractor_args': {'youtube': ['player_client=ios']},
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
         }
     }
 
@@ -1083,7 +1083,7 @@ def get_yt_duration(url):
                 'retries': 10,
                 'nocheckcertificate': True,
                 'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
+                    'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
                 }
             }
             if extractor_args:
@@ -1134,7 +1134,7 @@ def download_viral_chunk(duration=20):
             raw_path = f"{TEMP_DIR}/viral_raw_{video_id}.mp4"
             output_path = f"{TEMP_DIR}/viral_chunk_{video_id}.mp4"
 
-            # V1.0 Android Spoofing Bypass for Viral Content
+            # V1.0 iOS/iPad Safari Spoofing Bypass for Viral Content
             ydl_opts = {
                 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                 'outtmpl': raw_path,
@@ -1143,9 +1143,9 @@ def download_viral_chunk(duration=20):
                 'socket_timeout': 30,
                 'retries': 10,
                 'nocheckcertificate': True,
-                'extractor_args': {'youtube': ['player_client=android,ios']},
+                'extractor_args': {'youtube': ['player_client=ios']},
                 'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
+                    'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
                 }
             }
 

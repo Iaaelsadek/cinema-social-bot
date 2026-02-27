@@ -14,6 +14,23 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 # --- Dynamic Random Scheduling ---
 STATE_FILE = "bot_state.json"
 
+def update_scheduling(content_id):
+    """Updates the state file after a successful post."""
+    try:
+        state = {}
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE, 'r') as f:
+                state = json.load(f)
+        
+        state['last_post_id'] = content_id
+        state['last_post_time'] = datetime.now().isoformat()
+        
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f, indent=4)
+        logger.info(f"State updated: {content_id}")
+    except Exception as e:
+        logger.error(f"Failed to update state: {e}")
+
 import platform
 # MONKEY PATCH: Fix broken WMI on user system (CRITICAL)
 if platform.system() == 'Windows':

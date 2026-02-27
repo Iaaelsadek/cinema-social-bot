@@ -77,35 +77,12 @@ body { background-color: #050505; color: #00ffcc; }
 h1 { text-shadow: 0 0 10px #ff3366; color: #ff3366 !important; } 
 """ 
 
-with gr.Blocks(title="Cinema Emperor V6") as demo: 
+with gr.Blocks() as demo: 
     gr.Markdown("# ☢️ CINEMA BOT COMMAND CENTER V6.0 ☢️") 
-    
-    with gr.Row(): 
-        with gr.Column(): 
-            gr.Markdown("### 🎙️ Settings") 
-            voice_dd = gr.Dropdown(list(ARABIC_VOICES.keys()), label="Narrator", value="شاكر (مصر)") 
-            speed_sl = gr.Slider(-50, 50, -10, step=5, label="Speed (%)") 
-            quality = gr.Dropdown(["720p", "1080p", "4K"], label="Quality", value="1080p") 
-            ai_temp = gr.Slider(0, 1, 0.7, label="AI Imagination") 
-            ai_style = gr.Dropdown(["Dramatic", "Action", "Horror", "Documentary"], label="Tone", value="Dramatic") 
-        
-        with gr.Column(): 
-            mode_rd = gr.Radio(["Auto", "Manual"], label="Mode", value="Auto") 
-            m_title = gr.Textbox(label="Title") 
-            m_trailer = gr.Textbox(label="Trailer URL") 
-            m_overview = gr.Textbox(label="Overview", lines=3) 
-            
-            start_btn = gr.Button("🔥 INITIALIZE PRODUCTION 🔥", variant="primary") 
-            log_out = gr.Textbox(label="Logs", lines=10) 
-            vid_path_out = gr.Textbox(label="Video Path") 
-            
-    # --- WIRING (Test) --- 
-    def test_fn(): return "System Initialized", "None"
-    start_btn.click( 
-        fn=test_fn, 
-        inputs=[], 
-        outputs=[log_out, vid_path_out] 
-    ) 
+    gr.Markdown("ISOLATION MODE: Checking environment stability...") 
+    btn = gr.Button("Test") 
+    out = gr.Textbox() 
+    btn.click(lambda: "OK", None, out) 
 
 if __name__ == "__main__": 
     demo.launch( 

@@ -1733,6 +1733,76 @@ def upload_to_facebook(video_path, thumb_path, caption, comment_text, page_id, a
         logger.error(f"FB Upload Error: {e}")
         return False
 
+async def wait_for_telegram_video(movie_title, timeout_mins=10):
+    """
+    Hybrid Mode: Polls Telegram for a video file (document or video message).
+    """
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        logger.warning("Telegram bot credentials missing. Hybrid Mode waiting skipped.")
+        return None
+
+    msg = f"🎬 <b>الوضع الهجين نشط (Hybrid Mode)</b>\n\nالفيلم: <b>{movie_title}</b>\n\nالرجاء رفع ملف الفيديو (MP4) الآن.\n<i>بانتظار الرفع لمدة {timeout_mins} دقائق...</i>"
+    send_telegram_alert(msg)
+
+    start_time = time.time()
+    last_update_id = -1
+    
+    # Get last update ID to skip old messages
+    try:
+        res = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=10).json()
+        if res.get("ok") and res.get("result"):
+            last_update_id = res["result"][-1]["update_id"]
+    except: pass
+
+    logger.info(f"Waiting for manual video upload for '{movie_title}' via Telegram...")
+    
+    while time.time() - start_time < timeout_mins * 60:
+        try:
+            # Poll for updates
+            url = f"https://api.telegram.org/bot{token}/getUpdates?offset={last_update_id + 1}&timeout=20"
+            res = requests.get(url, timeout=25).json()
+            
+            if res.get("ok"):
+                for update in res.get("result", []):
+                    last_update_id = update["update_id"]
+                    message = update.get("message", {})
+                    
+                    # We accept video or document
+                    video = message.get("video") or message.get("document")
+                    if video:
+                        mime = video.get("mime_type", "")
+                        if "video" in mime or video.get("file_name", "").endswith(".mp4"):
+                            file_id = video["file_id"]
+                            # Get file path from Telegram
+                            file_res = requests.get(f"https://api.telegram.org/bot{token}/getFile?file_id={file_id}").json()
+                            if file_res.get("ok"):
+                                telegram_file_path = file_res["result"]["file_path"]
+                                download_url = f"https://api.telegram.org/file/bot{token}/{telegram_file_path}"
+                                
+                                local_path = os.path.join(TEMP_DIR, "trailer.mp4")
+                                logger.info(f"Downloading manual upload from Telegram: {download_url}")
+                                
+                                with requests.get(download_url, stream=True) as r:
+                                    r.raise_for_status()
+                                    with open(local_path, 'wb') as f:
+                                        for chunk in r.iter_content(chunk_size=8192):
+                                            f.write(chunk)
+                                
+                                if os.path.exists(local_path) and os.path.getsize(local_path) > 1000:
+                                    send_telegram_alert("✅ تم استلام الفيديو بنجاح! جاري إكمال عملية المونتاج...")
+                                    return local_path
+            
+            await asyncio.sleep(5)
+        except Exception as e:
+            logger.error(f"Error polling Telegram: {e}")
+            await asyncio.sleep(10)
+            
+    logger.warning("Timeout waiting for manual video upload.")
+    send_telegram_alert("⚠️ انتهى الوقت! سيتم الاستمرار باستخدام بوستر الفيلم فقط كخلفية.")
+    return None
+
 async def run_one_cycle():
     logger.info("--- Starting Cinema Social Bot (LOCKED MODE) ---")
     
@@ -1816,8 +1886,12 @@ async def run_one_cycle():
             # Extract timestamps for subtitles
             words = get_word_timestamps(audio_path)
             
-            # Get Video Content (Trailer)
+            # Get Video Content (Hybrid Mode: Try Telegram first if Trailer fails)
             video_path = get_video_content({}, title, int(audio_duration) if audio_duration else 58, tmdb_id=movie_id, trailer_url=trailer_url)
+            
+            if not video_path:
+                logger.info("Hybrid Mode: Trailer failed or disabled. Waiting for Telegram upload...")
+                video_path = await wait_for_telegram_video(title, timeout_mins=10)
             
         # Assemble Reel (New Logic)
         output_video_path = f"{OUTPUT_DIR}/final_reel.mp4"

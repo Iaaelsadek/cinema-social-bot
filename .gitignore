@@ -25,6 +25,7 @@ bot_state.json
 viral_queue.json
 viral_memory.json
 system_logs.txt
+run_output.log
 
 # Local Data and Links
 viral_links.txt

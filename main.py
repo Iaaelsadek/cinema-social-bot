@@ -911,10 +911,17 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
             search_opts = {
                 'quiet': True, 
                 'extract_flat': True,
+                'cookiefile': 'cookies.txt',  # CRITICAL: Tell yt-dlp to use the cookies!
                 'source_address': '0.0.0.0', # Force IPv4 to fix Errno -5 DNS bug
                 'socket_timeout': 30,
                 'retries': 10,
-                'nocheckcertificate': True
+                'nocheckcertificate': True,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'web'], # Bypass bot protection
+                        'player_skip': ['webpage', 'configs', 'js']
+                    }
+                }
             }
             with yt_dlp.YoutubeDL(search_opts) as ydl:
                 info = ydl.extract_info(search_query, download=False)

@@ -98,7 +98,7 @@ def stream_logs(env_vars):
         logs += f"❌ توقف بسبب خطأ (Code {return_code}).\n" 
         yield logs, gr.update(value=LOG_FILE), gr.update(), gr.update() 
 
-def master_launcher(mode, m_title, m_trailer, m_overview, tg, fb, insta, yt, tk, wa, voice, speed, quality, sub_color, temp): 
+def master_launcher(mode, m_title, m_trailer, m_overview, tg, fb, insta, yt, tk, wa, voice, speed, quality, temp): 
     env = os.environ.copy() 
     env.update({ 
         "FORCE_POST": "true", 
@@ -109,7 +109,7 @@ def master_launcher(mode, m_title, m_trailer, m_overview, tg, fb, insta, yt, tk,
         "VOICE_MODEL": voice, 
         "VOICE_SPEED": str(speed), 
         "VIDEO_QUALITY": quality, 
-        "SUB_COLOR": sub_color, 
+        "SUB_COLOR": "#FFFF00", 
         "AI_TEMP": str(temp), 
         "POST_TELEGRAM": str(tg), 
         "POST_FACEBOOK": str(fb), 
@@ -162,14 +162,12 @@ with gr.Blocks(title="Cinema Emperor Dashboard", css=css, theme=gr.themes.Monoch
                 with gr.TabItem("🤖 وضع الإنتاج (Production Mode)"): 
                     mode_radio = gr.Radio(["Auto", "Manual"], label="اختر أسلوب عمل البوت", value="Auto", info="الآلي يسحب من قاعدة البيانات، اليدوي يسمح لك بتحديد الفيلم.") 
                     
-                    with gr.Group(visible=False) as manual_group: 
+                    with gr.Group(visible=True) as manual_group: 
                         gr.Markdown("### 🎯 إعدادات الإنتاج اليدوي") 
                         with gr.Row(): 
                             m_title = gr.Textbox(label="اسم الفيلم / المسلسل", placeholder="مثال: Interstellar") 
                             m_trailer = gr.Textbox(label="رابط إعلان يوتيوب", placeholder="لتحسين السكربت (اختياري)") 
                         m_overview = gr.Textbox(label="ملخص القصة", lines=2, placeholder="ضع ملخصاً أو اتركه لجيميناي (اختياري)") 
-                    
-                    mode_radio.change(fn=lambda m: gr.update(visible=m=="Manual"), inputs=mode_radio, outputs=manual_group) 
                     
                     start_btn = gr.Button("🚀 إطـــلاق الـمـكـنـــة الآن 🚀", elem_classes="launch-btn", size="lg") 
 
@@ -192,7 +190,7 @@ with gr.Blocks(title="Cinema Emperor Dashboard", css=css, theme=gr.themes.Monoch
             
             with gr.Accordion("🎙️ استوديو الصوتيات (Edge-TTS)", open=True): 
                 voice_dd = gr.Dropdown(ARABIC_VOICES, label="اختر المعلق الصوتي", value="ar-EG-ShakirNeural") 
-                audio_preview = gr.Audio(label="🎧 عينة صوتية للمعلق", interactive=False, autoplay=True) 
+                audio_preview = gr.Audio(label="🎧 عينة صوتية للمعلق", interactive=False) 
                 # Auto-generate voice sample when dropdown changes 
                 voice_dd.change(fn=preview_voice, inputs=voice_dd, outputs=audio_preview) 
                 speed_slider = gr.Slider(-50, 50, value=-10, step=5, label="سرعة النطق (%)") 
@@ -207,15 +205,14 @@ with gr.Blocks(title="Cinema Emperor Dashboard", css=css, theme=gr.themes.Monoch
                 
             with gr.Accordion("🎨 المونتاج والرؤية (Video Engine)", open=False): 
                 quality_dd = gr.Dropdown(["720p", "1080p", "4K (بطيء)"], label="جودة الرندر", value="1080p") 
-                sub_color = gr.ColorPicker(label="لون الترجمة (Subtitles)", value="#FFFF00") 
                 
             with gr.Accordion("� عقل الذكاء الاصطناعي (AI Settings)", open=False): 
                 temp_slider = gr.Slider(0.0, 1.0, value=0.7, step=0.1, label="درجة الإبداع (Temperature)", info="0 يعني دقيق وصارم، 1 يعني خيالي ومبدع.") 
 
-    # Wiring up the launch button to pass all 15 arguments 
+    # Wiring up the launch button to pass all 14 arguments 
     start_btn.click( 
         master_launcher, 
-        inputs=[mode_radio, m_title, m_trailer, m_overview, tg_cb, fb_cb, insta_cb, yt_cb, tk_cb, wa_cb, voice_dd, speed_slider, quality_dd, sub_color, temp_slider], 
+        inputs=[mode_radio, m_title, m_trailer, m_overview, tg_cb, fb_cb, insta_cb, yt_cb, tk_cb, wa_cb, voice_dd, speed_slider, quality_dd, temp_slider], 
         outputs=[log_output, download_log_btn, video_preview, assets_files] 
     ) 
     kill_btn.click(cancel_process, outputs=[log_output]) 

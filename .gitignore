@@ -30,6 +30,13 @@ system_logs.txt
 viral_links.txt
 catalog.csv
 
+# Environment variables
+.env
+.venv
+env/
+venv/
+ENV/
+
 # VS Code / IDE
 .vscode/
 .idea/

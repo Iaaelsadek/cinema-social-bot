@@ -69,24 +69,24 @@ METHODS = [
     # 1. Cookies + iPad UA (أفضل فرصة للنجاح)
     {
         "name": "cookies+iPad-UA",
-        "args": ["--cookies", "cookies.txt", "--user-agent", UA_IPAD, "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"],
+        "args": ["--cookies", "cookies.txt", "--user-agent", UA_IPAD, "-f", "bestvideo+bestaudio/best"],
         "requires_cookies": True,
     },
     # 2. Cookies Only
     {
         "name": "cookies-only",
-        "args": ["--cookies", "cookies.txt", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"],
+        "args": ["--cookies", "cookies.txt", "-f", "bestvideo+bestaudio/best"],
         "requires_cookies": True,
     },
     # 3. iPad Safari iOS17 (بدون كوكيز كاحتياط)
     {
         "name": "iPad-Safari-iOS17",
-        "args": ["--user-agent", UA_IPAD, "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"],
+        "args": ["--user-agent", UA_IPAD, "-f", "bestvideo+bestaudio/best"],
     },
     # 4. iPhone Safari iOS17
     {
         "name": "iPhone-Safari-iOS17",
-        "args": ["--user-agent", UA_IPHONE, "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"],
+        "args": ["--user-agent", UA_IPHONE, "-f", "bestvideo+bestaudio/best"],
     },
     # 5. iPad + iOS client
     {
@@ -94,13 +94,13 @@ METHODS = [
         "args": [
             "--user-agent", UA_IPAD,
             "--extractor-args", "youtube:player_client=ios",
-            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "-f", "bestvideo+bestaudio/best",
         ],
     },
     # 6. iPad + watch url
     {
         "name": "iPad-Safari-watch-url",
-        "args": ["--user-agent", UA_IPAD, "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"],
+        "args": ["--user-agent", UA_IPAD, "-f", "bestvideo+bestaudio/best"],
         "use_watch_url": True,
     },
 ]

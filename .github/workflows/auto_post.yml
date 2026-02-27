@@ -89,6 +89,6 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add bot_state.json viral_queue.json
+          git add -f bot_state.json viral_queue.json
           git commit -m "chore: update bot state and queue [skip ci]" || echo "No changes to commit"
           git push

@@ -9,8 +9,49 @@ import subprocess
 import logging
 import time
 import glob
+import re
 
 log = logging.getLogger(__name__)
+
+def _prepare_cookies():
+    """
+    تجهيز ملف الكوكيز. إذا كان بصيغة raw string، يتم تحويله لصيغة Netscape.
+    """
+    if not os.path.exists("cookies.txt"):
+        return False
+        
+    try:
+        with open("cookies.txt", "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            
+        if not content:
+            return False
+            
+        # إذا كان يبدأ بـ # Netscape فهو جاهز
+        if content.startswith("# Netscape") or "\t" in content:
+            return True
+            
+        # إذا كان Raw String (مثل: key=val; key2=val2)
+        log.info("تحويل الكوكيز من Raw String إلى Netscape format...")
+        netscape_lines = ["# Netscape HTTP Cookie File\n"]
+        
+        # تقسيم الكوكيز
+        pairs = content.split(";")
+        for pair in pairs:
+            if "=" in pair:
+                key, val = pair.strip().split("=", 1)
+                # صيغة Netscape: domain, inclusion, path, secure, expiry, name, value
+                line = f".youtube.com\tTRUE\t/\tTRUE\t0\t{key}\t{val}\n"
+                netscape_lines.append(line)
+        
+        with open("cookies.txt", "w", encoding="utf-8") as f:
+            f.writelines(netscape_lines)
+            
+        log.info("تم تحديث cookies.txt بنجاح.")
+        return True
+    except Exception as e:
+        log.error(f"خطأ في تجهيز الكوكيز: {e}")
+        return False
 
 UA_IPAD = (
     "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) "
@@ -100,7 +141,9 @@ def download_video(
     """
     os.makedirs(out_dir, exist_ok=True)
     vid_id = _extract_video_id(url)
-    has_cookies = os.path.exists("cookies.txt") and os.path.getsize("cookies.txt") > 100
+    
+    # تجهيز الكوكيز قبل البدء
+    has_cookies = _prepare_cookies()
 
     for i, method in enumerate(METHODS):
         name = method["name"]

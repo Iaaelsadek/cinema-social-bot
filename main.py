@@ -928,8 +928,8 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
             logger.error(f"Search failed: {e}")
 
     if not current_video_url:
-        logger.error(f"No trailer URL found for {movie_title}")
-        sys.exit(1)
+        logger.warning(f"No trailer URL found for {movie_title}. Fallback to Poster mode.")
+        return None
 
     # V1.0 Android Spoofing Bypass (Bypass Bot Detection)
     unique_id = int(time.time())
@@ -954,9 +954,8 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
             os.remove(raw_path)
 
     if not downloaded:
-        logger.error(f"STRICT ABORT: All download attempts failed for {movie_title}")
-        send_telegram_alert(f"❌ **خطأ حرج:** فشل تحميل الإعلان لـ {movie_title} بعدة محاولات. تم إيقاف العملية.")
-        sys.exit(1)
+        logger.warning(f"FALLBACK: All trailer download attempts failed for {movie_title}. Proceeding with Poster background.")
+        return None
 
     try:
         # Simple Cut with FFmpeg
@@ -978,9 +977,8 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
             raise ValueError("FFmpeg output invalid")
 
     except Exception as e:
-        logger.error(f"STRICT ABORT: Trailer download failed: {e}")
-        send_telegram_alert(f"❌ **خطأ حرج:** فشل تحميل الإعلان لـ {movie_title}. تم إيقاف العملية.")
-        sys.exit(1)
+        logger.warning(f"FALLBACK: Trailer processing failed: {e}. Proceeding with Poster background.")
+        return None
 
 
 def get_trailer_transcription(trailer_url, movie_title):
@@ -1086,6 +1084,7 @@ def get_yt_duration(url):
             ydl_opts = {
                 'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                 'outtmpl': 'temp/trailer.%(ext)s',
+                'cookiefile': 'cookies.txt',  # CRITICAL: Tell yt-dlp to use the cookies!
                 'noplaylist': True,
                 'source_address': '0.0.0.0',  # CRITICAL: Forces IPv4 to bypass GitHub Actions DNS errors
                 'nocheckcertificate': True,
@@ -1094,7 +1093,7 @@ def get_yt_duration(url):
                 'quiet': True,
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['ios', 'android', 'web'], # CRITICAL: Bypass YouTube anti-bot
+                        'player_client': ['android', 'web'], # Bypass bot protection
                         'player_skip': ['webpage', 'configs', 'js']
                     }
                 },

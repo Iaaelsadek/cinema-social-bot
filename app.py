@@ -77,12 +77,12 @@ body { background-color: #050505; color: #00ffcc; }
 h1 { text-shadow: 0 0 10px #ff3366; color: #ff3366 !important; } 
 """ 
 
-with gr.Blocks(title="Cinema Emperor V6", css=custom_css, theme=gr.themes.Monochrome()) as demo: 
+with gr.Blocks(title="Cinema Emperor V6", css=custom_css) as demo: 
     gr.HTML("<div style='text-align:center;'><h1>☢️ CINEMA BOT COMMAND CENTER V6.0 ☢️</h1></div>") 
     
     with gr.Row(): 
-        with gr.Column(scale=1): 
-            sys_mon = gr.Label(value=get_sys_info(), label="System Status", elem_classes="stat-box") 
+        with gr.Column(): 
+            sys_mon = gr.Markdown(get_sys_info()) 
             with gr.Accordion("🌍 Social Dispatch (Auto-Post)", open=True): 
                 tg_cb = gr.Checkbox(label="Telegram", value=True) 
                 fb_cb = gr.Checkbox(label="Facebook Reels", value=False) 
@@ -93,11 +93,11 @@ with gr.Blocks(title="Cinema Emperor V6", css=custom_css, theme=gr.themes.Monoch
             
             with gr.Accordion("🎙️ Voice & Audio Laboratory", open=True): 
                 voice_dd = gr.Dropdown(list(ARABIC_VOICES.keys()), label="Select Narrator", value="شاكر (مصر)") 
-                audio_prev = gr.Audio(label="Live Preview", interactive=False) 
+                audio_prev = gr.Audio(label="Live Preview") 
                 voice_dd.change(preview_voice, voice_dd, audio_prev) 
                 speed_sl = gr.Slider(-50, 50, -10, step=5, label="Voice Speed (%)") 
         
-        with gr.Column(scale=2): 
+        with gr.Column(): 
             with gr.Tabs(): 
                 with gr.TabItem("🚀 Production"): 
                     mode_rd = gr.Radio(["Auto", "Manual"], label="Mode", value="Auto") 
@@ -110,11 +110,9 @@ with gr.Blocks(title="Cinema Emperor V6", css=custom_css, theme=gr.themes.Monoch
             
             log_out = gr.Textbox(label="Cyber Terminal Logs", lines=15, elem_id="log_box") 
             
-            gr.Markdown("### 🎬 Studio Preview") 
             vid_prev = gr.Video(label="Final Output") 
-            file_out = gr.File(label="Generated Assets") 
             
-        with gr.Column(scale=1): 
+        with gr.Column(): 
             with gr.Accordion("⚙️ Advanced AI & Video", open=True): 
                 quality = gr.Dropdown(["720p", "1080p", "4K"], label="Quality", value="1080p") 
                 ai_temp = gr.Slider(0, 1, 0.7, label="AI Imagination (Temp)") 

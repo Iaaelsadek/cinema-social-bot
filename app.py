@@ -4,14 +4,30 @@ import subprocess
 import threading 
 import sys 
 import json
+import re
 from datetime import datetime
 import pandas as pd
 
 # Global state for logs
 logs_storage = []
 
+def clean_ansi_codes(text):
+    # Remove ANSI escape sequences (colors, cursor moves, etc.)
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    text = ansi_escape.sub('', text)
+    # Remove TQDM/MoviePy progress bar artifacts (like [K, \r)
+    text = re.sub(r'\r', '', text)
+    text = re.sub(r'\[[0-9;]*[mK]', '', text)
+    # Remove excessive empty lines
+    text = re.sub(r'\n\s*\n', '\n', text)
+    return text
+
 def run_bot(force_post=True): 
     try: 
+        # Ensure Playwright browser is installed on the HF container
+        print("Ensuring Playwright browser is installed...")
+        os.system("playwright install chromium")
+
         # Run main.py with FORCE_POST enabled 
         env = os.environ.copy() 
         if force_post:
@@ -30,13 +46,16 @@ def run_bot(force_post=True):
         output = ""
         for line in process.stdout:
             output += line
-            yield output
+            # Yield cleaned output to Gradio UI
+            yield clean_ansi_codes(output)
             
         process.wait()
         if process.returncode == 0: 
-            yield output + "\n\n✅ تم بنجاح!"
+            final_out = output + "\n\n✅ تم بنجاح!"
+            yield clean_ansi_codes(final_out)
         else: 
-            yield output + f"\n\n❌ حدث خطأ (Exit Code: {process.returncode})"
+            final_out = output + f"\n\n❌ حدث خطأ (Exit Code: {process.returncode})"
+            yield clean_ansi_codes(final_out)
     except Exception as e: 
         yield str(e)
 

@@ -20,9 +20,9 @@ Thumbs.db
 *.7z
 *.rar
 
-# State and Queue
-bot_state.json
-viral_queue.json
+# State and Queue (Allowed for syncing between servers)
+!bot_state.json
+!viral_queue.json
 viral_memory.json
 system_logs.txt
 run_output.log

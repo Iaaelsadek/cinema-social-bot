@@ -75,7 +75,6 @@ with gr.Blocks(title="Cinema Emperor V6", css=custom_css) as demo:
     
     with gr.Row(): 
         with gr.Column(scale=1): 
-            # FIXED: Used Textbox instead of Label to prevent strictly typed dict schema error 
             sys_mon = gr.Textbox(value=get_sys_info(), label="System Status", interactive=False) 
             
             with gr.Accordion("🌍 Social Dispatch", open=True): 
@@ -90,7 +89,6 @@ with gr.Blocks(title="Cinema Emperor V6", css=custom_css) as demo:
                 voice_dd = gr.Dropdown(choices=list(ARABIC_VOICES.keys()), label="Select Narrator", value="شاكر (مصر)") 
                 audio_prev = gr.Audio(label="Live Preview", interactive=False) 
                 voice_dd.change(fn=preview_voice, inputs=voice_dd, outputs=audio_prev) 
-                # FIXED: Explicit kwargs for Slider 
                 speed_sl = gr.Slider(minimum=-50.0, maximum=50.0, value=-10.0, step=5.0, label="Voice Speed (%)") 
         
         with gr.Column(scale=2): 
@@ -106,15 +104,17 @@ with gr.Blocks(title="Cinema Emperor V6", css=custom_css) as demo:
         with gr.Column(scale=1): 
             with gr.Accordion("⚙️ AI & Video Tweaks", open=True): 
                 quality = gr.Dropdown(choices=["720p", "1080p", "4K"], label="Quality", value="1080p") 
-                # FIXED: Explicit kwargs for Slider 
                 ai_temp = gr.Slider(minimum=0.0, maximum=1.0, value=0.7, step=0.1, label="AI Imagination") 
                 ai_style = gr.Dropdown(choices=["Dramatic", "Action", "Horror", "Documentary"], label="Script Tone", value="Dramatic")
+            
+            gr.Markdown("### 🎬 Studio Preview") 
+            vid_prev = gr.Video(label="Final Output")
 
     # --- WIRING --- 
     start_btn.click( 
         fn=master_launch, 
         inputs=[mode_rd, m_title, m_trailer, m_overview, tg_cb, fb_cb, insta_cb, yt_cb, tk_cb, wa_cb, voice_dd, speed_sl, quality, ai_temp, ai_style], 
-        outputs=[log_out, gr.State()] # Simplified output to avoid schema errors
+        outputs=[log_out, vid_prev] 
     ) 
 
 if __name__ == "__main__": 

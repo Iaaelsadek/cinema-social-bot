@@ -69,7 +69,7 @@ UA_IPHONE = (
 COMMON_OPTS = [
     "--source-address", "0.0.0.0",       # CRITICAL: Forces IPv4 to bypass GitHub Actions DNS errors
     "--no-check-certificate",            # Bypass certificate validation
-    "--extractor-args", "youtube:player_client=ios,android,web;player_skip=webpage,configs,js",
+    "--extractor-args", "youtube:player_client=android,web;player_skip=webpage,configs,js",
 ]
 
 METHODS = [

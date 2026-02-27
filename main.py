@@ -877,37 +877,34 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
         logger.error(f"No trailer URL found for {movie_title}")
         sys.exit(1)
 
-    # V1.0 Simple Options with fallback for cookies
+    # V1.0 Android Spoofing Bypass (Bypass Bot Detection)
     unique_id = int(time.time())
     raw_path = os.path.join(TEMP_DIR, f"movie_raw_{unique_id}.mp4")
     cut_path = os.path.join(TEMP_DIR, f"movie_clip_{unique_id}.mp4")
 
-    browsers = ['chrome', 'edge', None]
+    # Android Client Workaround: Bypasses "Sign in to confirm you're not a bot" on Headless Servers
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'outtmpl': raw_path,
+        'quiet': False,
+        'extractor_args': {'youtube': ['player_client=android,ios']},
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
+        }
+    }
+
     downloaded = False
-
-    for browser in browsers:
-        try:
-            ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                'outtmpl': raw_path,
-                'quiet': False,
-            }
-            if browser:
-                ydl_opts['cookiesfrombrowser'] = (browser,)
-                logger.info(f"Attempting download with {browser} cookies...")
-            else:
-                logger.info("Attempting download without cookies...")
-
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([current_video_url])
-            
-            if os.path.exists(raw_path) and os.path.getsize(raw_path) > 1000:
-                downloaded = True
-                break
-        except Exception as e:
-            logger.warning(f"Download with {browser if browser else 'no'} cookies failed: {e}")
-            if os.path.exists(raw_path):
-                os.remove(raw_path)
+    try:
+        logger.info(f"Attempting download with Android spoofing: {current_video_url}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([current_video_url])
+        
+        if os.path.exists(raw_path) and os.path.getsize(raw_path) > 1000:
+            downloaded = True
+    except Exception as e:
+        logger.warning(f"Download with Android spoofing failed: {e}")
+        if os.path.exists(raw_path):
+            os.remove(raw_path)
 
     if not downloaded:
         logger.error(f"STRICT ABORT: All download attempts failed for {movie_title}")
@@ -948,6 +945,7 @@ def get_trailer_transcription(trailer_url, movie_title):
     logger.info(f"Downloading trailer audio for transcription: {trailer_url}")
     audio_path = os.path.join(TEMP_DIR, f"trailer_trans_{int(time.time())}.mp3")
     
+    # Android Client Workaround for Transcription Audio
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': audio_path.replace('.mp3', '.%(ext)s'),
@@ -958,51 +956,48 @@ def get_trailer_transcription(trailer_url, movie_title):
         }],
         'quiet': True,
         'no_warnings': True,
+        'extractor_args': {'youtube': ['player_client=android,ios']},
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
+        }
     }
 
-    # Try with cookies from common browsers
-    for browser in ['chrome', 'edge', None]:
-        try:
-            if browser:
-                ydl_opts['cookiesfrombrowser'] = (browser,)
-            else:
-                if 'cookiesfrombrowser' in ydl_opts:
-                    del ydl_opts['cookiesfrombrowser']
+    try:
+        logger.info(f"Attempting audio download with Android spoofing: {trailer_url}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([trailer_url])
+        
+        # The output path might have changed extension during download
+        actual_audio_path = audio_path
+        if not os.path.exists(actual_audio_path):
+            # Check for other extensions just in case
+            base = audio_path.rsplit('.', 1)[0]
+            for ext in ['mp3', 'm4a', 'webm', 'wav']:
+                if os.path.exists(f"{base}.{ext}"):
+                    actual_audio_path = f"{base}.{ext}"
+                    break
+        
+        if os.path.exists(actual_audio_path) and os.path.getsize(actual_audio_path) > 1000:
+            logger.info(f"Trailer audio downloaded to {actual_audio_path}. Transcribing...")
             
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([trailer_url])
+            # Use Whisper to transcribe
+            whisper_lib = get_whisper()
+            model = whisper_lib.load_model("base") # Use "base" or "tiny" for speed
+            result = model.transcribe(actual_audio_path)
+            transcription = result.get("text", "").strip()
             
-            # The output path might have changed extension during download
-            actual_audio_path = audio_path
-            if not os.path.exists(actual_audio_path):
-                # Check for other extensions just in case
-                base = audio_path.rsplit('.', 1)[0]
-                for ext in ['mp3', 'm4a', 'webm', 'wav']:
-                    if os.path.exists(f"{base}.{ext}"):
-                        actual_audio_path = f"{base}.{ext}"
-                        break
+            # Clean up
+            try: os.remove(actual_audio_path)
+            except: pass
             
-            if os.path.exists(actual_audio_path) and os.path.getsize(actual_audio_path) > 1000:
-                logger.info(f"Trailer audio downloaded to {actual_audio_path}. Transcribing...")
-                
-                # Use Whisper to transcribe
-                whisper_lib = get_whisper()
-                model = whisper_lib.load_model("base") # Use "base" or "tiny" for speed
-                result = model.transcribe(actual_audio_path)
-                transcription = result.get("text", "").strip()
-                
-                # Clean up
-                try: os.remove(actual_audio_path)
-                except: pass
-                
-                logger.info(f"Transcription completed ({len(transcription)} chars)")
-                return transcription
-                
-        except Exception as e:
-            logger.warning(f"Trailer audio transcription failed with {browser} cookies: {e}")
-            if os.path.exists(audio_path):
-                os.remove(audio_path)
-                
+            logger.info(f"Transcription completed ({len(transcription)} chars)")
+            return transcription
+            
+    except Exception as e:
+        logger.warning(f"Trailer audio transcription failed with Android spoofing: {e}")
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+            
     return ""
 
 
@@ -1052,21 +1047,23 @@ def save_viral_queue(data):
 def get_yt_duration(url):
     """Fetches total duration using multi-strategy yt-dlp metadata extraction."""
     strategies = [
-        ("Web-PO", {'youtube': {'player_client': ['web'], 'player_skip': ['webpage', 'js']}}),
-        ("Web", {'youtube': {'player_client': ['web']}}),
+        ("Android-Spoof", {'youtube': ['player_client=android,ios']}),
+        ("Web-PO", {'youtube': ['player_client=web', 'player_skip=webpage,js']}),
+        ("Web", {'youtube': ['player_client=web']}),
         ("Default", {})
     ]
     
     for name, extractor_args in strategies:
         try:
-            print(f"--- Strategy {name} Attempt for {url} Duration ---")
             logger.info(f"--- Strategy {name} Attempt for {url} Duration ---")
             ydl_opts = {
-                'cookiefile': os.path.abspath('cookies.txt'),
-                'quiet': False,
-                'no_warnings': False,
+                'quiet': True,
+                'no_warnings': True,
                 'extract_flat': True,
                 'skip_download': True,
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
+                }
             }
             if extractor_args:
                 ydl_opts['extractor_args'] = extractor_args
@@ -1075,11 +1072,9 @@ def get_yt_duration(url):
                 info = ydl.extract_info(url, download=False)
                 duration = float(info.get('duration', 0))
                 if duration > 0:
-                    print(f"--- Strategy {name} Success! Duration: {duration} ---")
                     logger.info(f"--- Strategy {name} Success! Duration: {duration} ---")
                     return duration
         except Exception as e:
-            print(f"--- Strategy {name} Failed: {e} ---")
             logger.warning(f"Strategy {name} failed for {url} duration: {e}")
             continue
             
@@ -1118,42 +1113,38 @@ def download_viral_chunk(duration=20):
             raw_path = f"{TEMP_DIR}/viral_raw_{video_id}.mp4"
             output_path = f"{TEMP_DIR}/viral_chunk_{video_id}.mp4"
 
-            # V1.0 Simple Options with fallback for cookies
-            browsers = ['chrome', 'edge', None]
+            # V1.0 Android Spoofing Bypass for Viral Content
+            ydl_opts = {
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'outtmpl': raw_path,
+                'quiet': False,
+                'extractor_args': {'youtube': ['player_client=android,ios']},
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
+                }
+            }
+
             downloaded = False
-            
-            for browser in browsers:
-                try:
-                    ydl_opts = {
-                        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                        'outtmpl': raw_path,
-                        'quiet': False,
-                    }
-                    if browser:
-                        ydl_opts['cookiesfrombrowser'] = (browser,)
-                        logger.info(f"Attempting viral download with {browser} cookies...")
-                    else:
-                        logger.info("Attempting viral download without cookies...")
+            try:
+                logger.info(f"Attempting viral download with Android spoofing: {url}")
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    # Check duration first
+                    info = ydl.extract_info(url, download=False)
+                    total_duration = float(info.get('duration', 0))
+                    
+                    if total_duration - used_seconds < duration:
+                        logger.info(f"URL exhausted: {url}")
+                        continue # Skip this URL
 
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        # Check duration first
-                        info = ydl.extract_info(url, download=False)
-                        total_duration = float(info.get('duration', 0))
-                        
-                        if total_duration - used_seconds < duration:
-                            logger.info(f"URL exhausted: {url}")
-                            break # Skip this URL
-
-                        # Download
-                        ydl.download([url])
-
-                    if os.path.exists(raw_path) and os.path.getsize(raw_path) > 1000:
-                        downloaded = True
-                        break
-                except Exception as e:
-                    logger.warning(f"Viral download with {browser if browser else 'no'} cookies failed: {e}")
-                    if os.path.exists(raw_path):
-                        os.remove(raw_path)
+                    # Download
+                    ydl.download([url])
+                
+                if os.path.exists(raw_path) and os.path.getsize(raw_path) > 1000:
+                    downloaded = True
+            except Exception as e:
+                logger.warning(f"Viral download with Android spoofing failed: {e}")
+                if os.path.exists(raw_path):
+                    os.remove(raw_path)
 
             if not downloaded:
                 continue # Try next URL

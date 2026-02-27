@@ -192,7 +192,7 @@ with gr.Blocks(title="Cinema Emperor Dashboard", css=css, theme=gr.themes.Monoch
             
             with gr.Accordion("🎙️ استوديو الصوتيات (Edge-TTS)", open=True): 
                 voice_dd = gr.Dropdown(ARABIC_VOICES, label="اختر المعلق الصوتي", value="ar-EG-ShakirNeural") 
-                audio_preview = gr.Audio(label="🎧 عينة صوتية للمعلق", type="filepath", interactive=False, autoplay=True) 
+                audio_preview = gr.Audio(label="🎧 عينة صوتية للمعلق", interactive=False, autoplay=True) 
                 # Auto-generate voice sample when dropdown changes 
                 voice_dd.change(fn=preview_voice, inputs=voice_dd, outputs=audio_preview) 
                 speed_slider = gr.Slider(-50, 50, value=-10, step=5, label="سرعة النطق (%)") 
@@ -206,8 +206,8 @@ with gr.Blocks(title="Cinema Emperor Dashboard", css=css, theme=gr.themes.Monoch
                 wa_cb = gr.Checkbox(label="💬 WhatsApp") 
                 
             with gr.Accordion("🎨 المونتاج والرؤية (Video Engine)", open=False): 
-                quality_dd = gr.Dropdown(["720p", "1080p", "4K (بطيء)"], label="جودة الرندر", value="1080p", multiselect=False) 
-                sub_color = gr.ColorPicker(label="لون الترجمة (Subtitles)", value="#FFFF00", interactive=True) 
+                quality_dd = gr.Dropdown(["720p", "1080p", "4K (بطيء)"], label="جودة الرندر", value="1080p") 
+                sub_color = gr.ColorPicker(label="لون الترجمة (Subtitles)", value="#FFFF00") 
                 
             with gr.Accordion("� عقل الذكاء الاصطناعي (AI Settings)", open=False): 
                 temp_slider = gr.Slider(0.0, 1.0, value=0.7, step=0.1, label="درجة الإبداع (Temperature)", info="0 يعني دقيق وصارم، 1 يعني خيالي ومبدع.") 

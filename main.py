@@ -107,6 +107,7 @@ from dotenv import load_dotenv
 import edge_tts
 import yt_dlp
 import numpy as np
+from youtube_downloader import download_video
 from PIL import Image, ImageDraw, ImageFont
 from supabase import create_client, Client
 from google import genai
@@ -892,30 +893,19 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
     cut_path = os.path.join(TEMP_DIR, f"movie_clip_{unique_id}.mp4")
 
     # iOS/iPad Safari Client Workaround: Bypasses "Sign in to confirm you're not a bot"
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': raw_path,
-        'quiet': False,
-        'source_address': '0.0.0.0', # Force IPv4 to fix Errno -5 DNS bug
-        'socket_timeout': 30,
-        'retries': 10,
-        'nocheckcertificate': True,
-        'extractor_args': {'youtube': ['player_client=ios']},
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
-        }
-    }
-
     downloaded = False
     try:
-        logger.info(f"Attempting download with Android spoofing: {current_video_url}")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([current_video_url])
+        logger.info(f"Attempting download with multi-strategy: {current_video_url}")
+        res_path = download_video(current_video_url, out_dir=TEMP_DIR)
         
-        if os.path.exists(raw_path) and os.path.getsize(raw_path) > 1000:
+        if res_path and os.path.exists(res_path):
+            # Rename to raw_path to keep existing logic
+            if os.path.exists(raw_path): os.remove(raw_path)
+            os.rename(res_path, raw_path)
             downloaded = True
+            
     except Exception as e:
-        logger.warning(f"Download with Android spoofing failed: {e}")
+        logger.warning(f"Download with multi-strategy failed: {e}")
         if os.path.exists(raw_path):
             os.remove(raw_path)
 
@@ -959,42 +949,18 @@ def get_trailer_transcription(trailer_url, movie_title):
     audio_path = os.path.join(TEMP_DIR, f"trailer_trans_{int(time.time())}.mp3")
     
     # iOS/iPad Safari Client Workaround for Transcription Audio
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': audio_path.replace('.mp3', '.%(ext)s'),
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'quiet': True,
-        'no_warnings': True,
-        'source_address': '0.0.0.0', # Force IPv4 to fix Errno -5 DNS bug
-        'socket_timeout': 30,
-        'retries': 10,
-        'nocheckcertificate': True,
-        'extractor_args': {'youtube': ['player_client=ios']},
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
-        }
-    }
-
     try:
-        logger.info(f"Attempting audio download with Android spoofing: {trailer_url}")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([trailer_url])
+        logger.info(f"Attempting audio download with multi-strategy: {trailer_url}")
+        res_path = download_video(trailer_url, out_dir=TEMP_DIR)
         
-        # The output path might have changed extension during download
-        actual_audio_path = audio_path
-        if not os.path.exists(actual_audio_path):
-            # Check for other extensions just in case
-            base = audio_path.rsplit('.', 1)[0]
-            for ext in ['mp3', 'm4a', 'webm', 'wav']:
-                if os.path.exists(f"{base}.{ext}"):
-                    actual_audio_path = f"{base}.{ext}"
-                    break
-        
-        if os.path.exists(actual_audio_path) and os.path.getsize(actual_audio_path) > 1000:
+        if res_path and os.path.exists(res_path):
+            # Move to audio_path location
+            if os.path.exists(audio_path): os.remove(audio_path)
+            os.rename(res_path, audio_path)
+            
+            # The rest of transcription logic expects audio_path
+            actual_audio_path = audio_path
+            if os.path.exists(actual_audio_path) and os.path.getsize(actual_audio_path) > 1000:
             logger.info(f"Trailer audio downloaded to {actual_audio_path}. Transcribing...")
             
             # Use Whisper to transcribe
@@ -1135,39 +1101,17 @@ def download_viral_chunk(duration=20):
             output_path = f"{TEMP_DIR}/viral_chunk_{video_id}.mp4"
 
             # V1.0 iOS/iPad Safari Spoofing Bypass for Viral Content
-            ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                'outtmpl': raw_path,
-                'quiet': False,
-                'source_address': '0.0.0.0', # Force IPv4 to fix Errno -5 DNS bug
-                'socket_timeout': 30,
-                'retries': 10,
-                'nocheckcertificate': True,
-                'extractor_args': {'youtube': ['player_client=ios']},
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
-                }
-            }
-
             downloaded = False
             try:
-                logger.info(f"Attempting viral download with Android spoofing: {url}")
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    # Check duration first
-                    info = ydl.extract_info(url, download=False)
-                    total_duration = float(info.get('duration', 0))
-                    
-                    if total_duration - used_seconds < duration:
-                        logger.info(f"URL exhausted: {url}")
-                        continue # Skip this URL
-
-                    # Download
-                    ydl.download([url])
+                logger.info(f"Attempting viral download with multi-strategy: {url}")
+                res_path = download_video(url, out_dir=TEMP_DIR)
                 
-                if os.path.exists(raw_path) and os.path.getsize(raw_path) > 1000:
+                if res_path and os.path.exists(res_path):
+                    if os.path.exists(raw_path): os.remove(raw_path)
+                    os.rename(res_path, raw_path)
                     downloaded = True
             except Exception as e:
-                logger.warning(f"Viral download with Android spoofing failed: {e}")
+                logger.warning(f"Viral download with multi-strategy failed: {e}")
                 if os.path.exists(raw_path):
                     os.remove(raw_path)
 

@@ -17,4 +17,4 @@ supabase
 beautifulsoup4
 lxml
 playwright
-gradio==4.44.1
+gradio

@@ -15,7 +15,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 STATE_FILE = "bot_state.json"
 
 def update_scheduling(content_id):
-    """Updates the state file after a successful post."""
+    """Updates the state file after a successful post and alternates server turns."""
     try:
         state = {}
         if os.path.exists(STATE_FILE):
@@ -25,11 +25,38 @@ def update_scheduling(content_id):
         state['last_post_id'] = content_id
         state['last_post_time'] = datetime.now().isoformat()
         
+        # Alternate turn for the next run
+        current_turn = state.get('next_server_turn', 'SERVER_A')
+        state['next_server_turn'] = 'SERVER_B' if current_turn == 'SERVER_A' else 'SERVER_A'
+        
         with open(STATE_FILE, 'w') as f:
             json.dump(state, f, indent=4)
-        logger.info(f"State updated: {content_id}")
+        logger.info(f"State updated: {content_id}. Next turn: {state['next_server_turn']}")
     except Exception as e:
         logger.error(f"Failed to update state: {e}")
+
+def check_server_turn():
+    """Checks if it's this server's turn to run."""
+    server_identity = os.getenv("SERVER_IDENTITY", "SERVER_A") # Default to A
+    
+    if not os.path.exists(STATE_FILE):
+        logger.info(f"No state file. {server_identity} taking the first turn.")
+        return True
+        
+    try:
+        with open(STATE_FILE, 'r') as f:
+            state = json.load(f)
+        
+        next_turn = state.get('next_server_turn', 'SERVER_A')
+        if next_turn == server_identity:
+            logger.info(f"It's {server_identity}'s turn. Proceeding...")
+            return True
+        else:
+            logger.warning(f"Not {server_identity}'s turn. Current turn: {next_turn}. Skipping.")
+            return False
+    except Exception as e:
+        logger.error(f"Error checking turn: {e}. Proceeding anyway for safety.")
+        return True
 
 import platform
 # MONKEY PATCH: Fix broken WMI on user system (CRITICAL)
@@ -1691,6 +1718,12 @@ def upload_to_facebook(video_path, thumb_path, caption, comment_text, page_id, a
 
 async def run_one_cycle():
     logger.info("--- Starting Cinema Social Bot (LOCKED MODE) ---")
+    
+    # Economy Mode: Alternate between servers to save bandwidth
+    if not check_server_turn() and os.getenv("FORCE_POST") != "true":
+        logger.info("Economy Mode Active: Skipping this turn as per rotation.")
+        return
+
     clean_temp_files()
     audio_path = None
     output_video_path = None

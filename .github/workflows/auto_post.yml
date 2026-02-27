@@ -70,6 +70,7 @@ jobs:
 
       - name: Run Viral Reel Generator
         env:
+          SERVER_IDENTITY: "SERVER_A"
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}

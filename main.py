@@ -862,7 +862,15 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
         logger.info(f"Searching YouTube for trailer: {movie_title}")
         search_query = f"ytsearch1:{movie_title} Official Trailer"
         try:
-            with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True}) as ydl:
+            search_opts = {
+                'quiet': True, 
+                'extract_flat': True,
+                'source_address': '0.0.0.0', # Force IPv4 to fix Errno -5 DNS bug
+                'socket_timeout': 30,
+                'retries': 10,
+                'nocheckcertificate': True
+            }
+            with yt_dlp.YoutubeDL(search_opts) as ydl:
                 info = ydl.extract_info(search_query, download=False)
                 if info.get('entries'):
                     # In extract_flat=True, it might be 'url' instead of 'webpage_url'
@@ -887,6 +895,10 @@ def fetch_tier1_trailer(movie_title, duration=58, tmdb_id=None, trailer_url=None
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': raw_path,
         'quiet': False,
+        'source_address': '0.0.0.0', # Force IPv4 to fix Errno -5 DNS bug
+        'socket_timeout': 30,
+        'retries': 10,
+        'nocheckcertificate': True,
         'extractor_args': {'youtube': ['player_client=android,ios']},
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
@@ -956,6 +968,10 @@ def get_trailer_transcription(trailer_url, movie_title):
         }],
         'quiet': True,
         'no_warnings': True,
+        'source_address': '0.0.0.0', # Force IPv4 to fix Errno -5 DNS bug
+        'socket_timeout': 30,
+        'retries': 10,
+        'nocheckcertificate': True,
         'extractor_args': {'youtube': ['player_client=android,ios']},
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
@@ -1061,6 +1077,10 @@ def get_yt_duration(url):
                 'no_warnings': True,
                 'extract_flat': True,
                 'skip_download': True,
+                'source_address': '0.0.0.0', # Force IPv4 to fix Errno -5 DNS bug
+                'socket_timeout': 30,
+                'retries': 10,
+                'nocheckcertificate': True,
                 'http_headers': {
                     'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
                 }
@@ -1118,6 +1138,10 @@ def download_viral_chunk(duration=20):
                 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                 'outtmpl': raw_path,
                 'quiet': False,
+                'source_address': '0.0.0.0', # Force IPv4 to fix Errno -5 DNS bug
+                'socket_timeout': 30,
+                'retries': 10,
+                'nocheckcertificate': True,
                 'extractor_args': {'youtube': ['player_client=android,ios']},
                 'http_headers': {
                     'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'

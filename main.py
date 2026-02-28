@@ -1945,12 +1945,6 @@ async def run_one_cycle():
 
 if __name__ == "__main__":
     try:
-        # Random sleep to avoid bot-like pattern (0 to 120 minutes)
-        if os.getenv("GITHUB_ACTIONS") == "true" and os.getenv("FORCE_POST") != "true":
-            delay = random.randint(0, 120 * 60)
-            logger.info(f"⏳ Random Delay: Sleeping for {delay/60:.1f} minutes before starting...")
-            time.sleep(delay)
-            
         asyncio.run(run_one_cycle())
     except KeyboardInterrupt:
         print("Bot stopped by user.")

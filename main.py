@@ -244,7 +244,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 def send_telegram_alert(message):
-    """Sends a notification message to Telegram."""
+    """Sends a notification message to Telegram with retry mechanism for DNS robustness."""
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
@@ -253,11 +253,19 @@ def send_telegram_alert(message):
     
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
-    try:
-        requests.post(url, json=payload, timeout=10)
-        logger.info("Telegram alert sent.")
-    except Exception as e:
-        logger.error(f"Failed to send Telegram alert: {e}")
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            requests.post(url, json=payload, timeout=15)
+            logger.info("Telegram alert sent.")
+            return
+        except Exception as e:
+            logger.error(f"Attempt {attempt + 1} failed to send Telegram alert: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(5) # Wait 5 seconds before retry
+    
+    logger.error("All attempts to send Telegram alert failed.")
 
 def send_error_email(subject, message):
     """Sends an email alert when a critical error occurs."""
@@ -1926,6 +1934,21 @@ async def run_one_cycle():
     except Exception as e:
         logger.error(f"Critical Error: {e}")
         logger.error(traceback.format_exc())
+        
+        # Reset state if critical failure to avoid getting stuck
+        if os.path.exists(STATE_FILE):
+            try:
+                with open(STATE_FILE, 'r') as f:
+                    state = json.load(f)
+                state['last_status'] = 'failed'
+                state['error'] = str(e)
+                # If we were processing a specific ID, we might want to clear it or mark it
+                with open(STATE_FILE, 'w') as f:
+                    json.dump(state, f, indent=4)
+                logger.info("Bot state reset after critical failure.")
+            except Exception as se:
+                logger.error(f"Failed to reset state: {se}")
+
         send_telegram_alert(f"❌ <b>CinemaBot Critical Error</b>\n\n<code>{str(e)}</code>")
         send_error_email("Bot Cycle Crashed", str(e))
         sys.exit(1) # Ensure GitHub Actions shows failure on crash

@@ -1758,9 +1758,23 @@ async def wait_for_telegram_video(movie_title, timeout_mins=10):
     last_update_id = -1
     
     # Get last update ID to skip old messages
+    def telegram_request(method, url, **kwargs):
+        """Helper to handle Telegram requests with retries for DNS/Network robustness."""
+        for attempt in range(3):
+            try:
+                res = requests.get(url, timeout=kwargs.get('timeout', 15), stream=kwargs.get('stream', False))
+                if not kwargs.get('stream', False):
+                    return res.json()
+                return res
+            except Exception as e:
+                if attempt == 2:
+                    raise e
+                time.sleep(5)
+        return None
+
     try:
-        res = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=10).json()
-        if res.get("ok") and res.get("result"):
+        res = telegram_request("GET", f"https://api.telegram.org/bot{token}/getUpdates", timeout=10)
+        if res and res.get("ok") and res.get("result"):
             last_update_id = res["result"][-1]["update_id"]
     except: pass
 
@@ -1770,9 +1784,9 @@ async def wait_for_telegram_video(movie_title, timeout_mins=10):
         try:
             # Poll for updates
             url = f"https://api.telegram.org/bot{token}/getUpdates?offset={last_update_id + 1}&timeout=20"
-            res = requests.get(url, timeout=25).json()
+            res = telegram_request("GET", url, timeout=30)
             
-            if res.get("ok"):
+            if res and res.get("ok"):
                 for update in res.get("result", []):
                     last_update_id = update["update_id"]
                     message = update.get("message", {})
@@ -1784,15 +1798,16 @@ async def wait_for_telegram_video(movie_title, timeout_mins=10):
                         if "video" in mime or video.get("file_name", "").endswith(".mp4"):
                             file_id = video["file_id"]
                             # Get file path from Telegram
-                            file_res = requests.get(f"https://api.telegram.org/bot{token}/getFile?file_id={file_id}").json()
-                            if file_res.get("ok"):
+                            file_res = telegram_request("GET", f"https://api.telegram.org/bot{token}/getFile?file_id={file_id}")
+                            if file_res and file_res.get("ok"):
                                 telegram_file_path = file_res["result"]["file_path"]
                                 download_url = f"https://api.telegram.org/file/bot{token}/{telegram_file_path}"
                                 
                                 local_path = os.path.join(TEMP_DIR, "trailer.mp4")
                                 logger.info(f"Downloading manual upload from Telegram: {download_url}")
                                 
-                                with requests.get(download_url, stream=True) as r:
+                                r = telegram_request("GET", download_url, stream=True, timeout=60)
+                                if r:
                                     r.raise_for_status()
                                     with open(local_path, 'wb') as f:
                                         for chunk in r.iter_content(chunk_size=8192):
@@ -1804,8 +1819,9 @@ async def wait_for_telegram_video(movie_title, timeout_mins=10):
             
             await asyncio.sleep(5)
         except Exception as e:
+            # Only log error if it's not a temporary DNS/Connection issue we already retried
             logger.error(f"Error polling Telegram: {e}")
-            await asyncio.sleep(10)
+            await asyncio.sleep(15)
             
     logger.warning("Timeout waiting for manual video upload.")
     send_telegram_alert("⚠️ انتهى الوقت! سيتم الاستمرار باستخدام بوستر الفيلم فقط كخلفية.")
